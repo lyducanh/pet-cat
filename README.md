@@ -4,6 +4,14 @@ A realistic cat you can pet in the browser, seen from above on a sunny cushion.
 
 **Play:** https://lyducanh.github.io/pet-cat/
 
+## Video
+
+| English | Tiếng Việt |
+|---|---|
+| [![Pet the Cat promo video](media/promo-en.jpg)](https://lyducanh.github.io/pet-cat/media/promo-en.mp4) | [![Video giới thiệu Vuốt ve mèo](media/promo-vi.jpg)](https://lyducanh.github.io/pet-cat/media/promo-vi.mp4) |
+
+Click a picture to play the video (64 s, 1080p). Bấm vào ảnh để xem video.
+
 - **Stroke its back:** it relaxes, purrs, and its fur follows your hand.
 - **Scratch above the tail:** it stands up and raises its hips.
 - **Grab the tail:** it follows your hand, then swishes back.

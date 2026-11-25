@@ -33,6 +33,13 @@
   .nightBtn { position:absolute; top:12px; right:12px; z-index:3; width:38px; height:38px; padding:0; border-radius:50%;
               display:grid; place-items:center; font-size:17px; cursor:pointer; background:rgba(255,255,255,.78); backdrop-filter:blur(4px); }
   :root[data-theme="dark"] .nightBtn { background:rgba(30,26,22,.7); }
+  .vidModal { position:fixed; inset:0; z-index:50; display:none; place-items:center; background:rgba(12,9,7,.78); backdrop-filter:blur(6px); padding:24px; }
+  .vidModal.open { display:grid; }
+  .vidModal .box { position:relative; width:min(1100px, 100%); }
+  .vidModal video { display:block; width:100%; border-radius:16px; background:#000; box-shadow:0 20px 60px rgba(0,0,0,.5); }
+  .vidModal .close { position:absolute; top:-18px; right:-18px; width:44px; height:44px; padding:0; border-radius:50%; font-size:20px; }
+  .vidModal .langs { display:flex; gap:8px; justify-content:center; margin-top:12px; }
+  .vidModal .langs button.on { background:var(--fill2); color:#fff; }
   .breeds { display:flex; align-items:center; gap:8px; width:100%; overflow-x:auto; padding:2px; scrollbar-width:none; }
   .breeds .br { flex:none; display:flex; align-items:center; gap:7px; padding:3px 12px 3px 3px; font-size:13px; border:2px solid transparent; }
   .breeds .br img { width:30px; height:30px; border-radius:50%; object-fit:cover; display:block; }
@@ -84,6 +91,7 @@
       <div class="row"><button id="shapeReset" data-i18n="reset">Reset</button></div>
     </div>
     <button id="shapeBtn" data-i18n="shapeBtn">⚙ Size &amp; body</button>
+    <button id="videoBtn" data-i18n="video">🎬 Watch video</button>
     <button id="langBtn">🌐 Tiếng Việt</button>
     <button id="reset" data-i18n="startOver">↺ Start over</button>
     <button id="sound">🔇 Sound off</button>
@@ -104,6 +112,13 @@
   </div>
 </div>
 
+<div class="vidModal" id="vidModal" role="dialog" aria-modal="true">
+  <div class="box">
+    <video id="vid" controls playsinline preload="none"></video>
+    <button class="close" id="vidClose" aria-label="Close">✕</button>
+    <div class="langs"><button data-vl="vi">Tiếng Việt</button><button data-vl="en">English</button></div>
+  </div>
+</div>
 <script>
 (() => {
 'use strict';
@@ -122,7 +137,7 @@ const I18N = {
         s3t:'Grab the tail', s3d:'Press on the tail and drag. It follows your hand, then swishes back.',
         s4t:'Keep petting', s4d:'Fill the heart bar and the cat rolls onto its back. Stop and it rolls back.',
         spotStroke:'hold & drag slowly →', spotScratch:'hold & rub quickly here', spotGrab:'press & drag the tail', spotBelly:'keep stroking',
-        natural:'natural coat (colours are for the orange shorthair)' },
+        natural:'natural coat (colours are for the orange shorthair)', video:'🎬 Watch video' },
   vi: { title:'Vuốt ve mèo', loading:'Đang tải mèo…', dozing:'đang ngủ', purring:' & gừ gừ', blissed:'sướng rơn',
         hipsUp:'nhổm mông!', tailHeld:'bị nắm đuôi!', shapeBtn:'⚙ Cỡ & dáng', size:'Cỡ', body:'Dáng', reset:'Đặt lại',
         startOver:'↺ Làm lại', soundOff:'🔇 Tắt tiếng', soundOn:'🔊 Bật tiếng', nightOn:'Chế độ đêm', nightOff:'Chế độ ngày',
@@ -132,7 +147,7 @@ const I18N = {
         s3t:'Nắm đuôi', s3d:'Nhấn vào đuôi rồi kéo. Đuôi đi theo tay bạn, thả ra thì vẫy lại.',
         s4t:'Tiếp tục vuốt ve', s4d:'Lấp đầy thanh trái tim, mèo sẽ lật ngửa bụng. Dừng lại thì mèo lăn về.',
         spotStroke:'giữ & kéo chậm →', spotScratch:'giữ & gãi nhanh ở đây', spotGrab:'nhấn & kéo đuôi', spotBelly:'cứ vuốt tiếp',
-        natural:'màu lông tự nhiên (đổi màu dùng cho mèo mướp lông ngắn)' },
+        natural:'màu lông tự nhiên (đổi màu dùng cho mèo mướp lông ngắn)', video:'🎬 Xem video' },
 };
 const store = { get(k){ try { return localStorage.getItem(k); } catch (_) { return null; } },
                 set(k, v){ try { localStorage.setItem(k, v); } catch (_) {} } };
@@ -830,6 +845,20 @@ async function pickBreed(id){
   try { await loadCat(id); store.set('cat-breed', id); } finally { el.classList.remove('busy'); }
   renderBreeds(); setCoat(S.coat, false);
 }
+
+// promo video (in the language of the page; switchable in the player)
+const vidModal = document.getElementById('vidModal'), vid = document.getElementById('vid');
+function showVideo(l){
+  vid.poster = `media/promo-${l}.jpg`; vid.src = `media/promo-${l}.mp4`;
+  vidModal.querySelectorAll('[data-vl]').forEach(b => b.classList.toggle('on', b.dataset.vl === l));
+  vid.play().catch(() => {});
+}
+function closeVideo(){ vid.pause(); vidModal.classList.remove('open'); }
+document.getElementById('videoBtn').addEventListener('click', () => { vidModal.classList.add('open'); showVideo(LANG); });
+document.getElementById('vidClose').addEventListener('click', closeVideo);
+vidModal.addEventListener('click', e => { if (e.target === vidModal) closeVideo(); });
+vidModal.querySelectorAll('[data-vl]').forEach(b => b.addEventListener('click', () => showVideo(b.dataset.vl)));
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && vidModal.classList.contains('open')) closeVideo(); });
 
 // language
 function applyLang(){
