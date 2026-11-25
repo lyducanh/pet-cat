@@ -1,0 +1,25 @@
+<!doctype html>
+<meta charset="utf-8"><title>Cutout check</title>
+<body style="margin:0;background:repeating-conic-gradient(#bbb 0 25%,#eee 0 50%) 0/20px 20px">
+<canvas id="c" width="1600" height="900" style="width:100%"></canvas>
+<script>
+// Composite the cutouts onto the room (left) and on a checkerboard (right) to inspect edges/seams.
+const load = s => new Promise(r => { const i = new Image(); i.onload = () => r(i); i.src = s; });
+(async () => {
+  const O = '../assets/top/out/', meta = await (await fetch(O + 'meta.json')).json();
+  const [room, side, tail, belly, hand, grip] = await Promise.all(['room', 'body-side', 'tail', 'body-belly', 'hand', 'grip'].map(n => load(O + n + '.webp')));
+  const g = document.getElementById('c').getContext('2d');
+  const put = (img, m, X, Y, W, H) => g.drawImage(img, X + m.x * W, Y + m.y * H, m.w * W, m.h * H);
+  // side pose on the room
+  g.drawImage(room, 0, 0, 800, 450);
+  put(side, meta['body-side'], 0, 0, 800, 450); put(tail, meta.tail, 0, 0, 800, 450);
+  // belly pose on the room
+  g.drawImage(room, 800, 0, 800, 450);
+  put(belly, meta['body-belly'], 800, 0, 800, 450); put(tail, meta.tail, 800, 0, 800, 450);
+  // pieces on the checkerboard
+  put(side, meta['body-side'], 0, 450, 800, 450);
+  g.drawImage(tail, 820, 470, 360, 360 * tail.height / tail.width);
+  g.drawImage(hand, 1240, 460, 110, 400); g.drawImage(grip, 1380, 460, 143, 400);
+})();
+</script>
+</body>

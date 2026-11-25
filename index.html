@@ -1,0 +1,1156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Pet the Cat</title>
+<style>
+  :root { --bg:#f6efe6; --ink:#4a3b2f; --muted:#9a8878; --bar:#eadfd2; --fill1:#f2c58a; --fill2:#d9773a; --card:#fff; }
+  :root[data-theme="dark"] { --bg:#171411; --ink:#ece2d6; --muted:#a29484; --bar:#3a322b; --card:#26211c; }
+  html,body { transition:background .6s, color .6s; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:14px/1.4 system-ui, sans-serif; overflow:hidden; }
+  .wrap { height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:16px; }
+  .stage { position:relative; border-radius:18px; overflow:hidden; box-shadow:0 10px 40px rgba(80,50,20,.18); background:#d8c8b4; cursor:none; touch-action:none; }
+  canvas#c { display:block; width:100%; height:100%; }
+  .bar { display:flex; align-items:center; gap:14px; width:100%; position:relative; }
+  .shape { position:absolute; right:0; bottom:calc(100% + 10px); background:var(--card); border-radius:14px; padding:12px 16px;
+           box-shadow:0 6px 24px rgba(80,50,20,.18); display:none; z-index:5; min-width:280px; }
+  .shape.open { display:grid; gap:10px; }
+  .shape label { display:grid; grid-template-columns:52px 22px 1fr 22px; align-items:center; gap:6px; font-size:13px; }
+  .shape label span { text-align:center; font-size:16px; }
+  .shape input { width:100%; accent-color:var(--fill2); }
+  .shape .row { display:flex; justify-content:flex-end; }
+  .shape .row button { padding:4px 10px; font-size:12px; background:var(--bg); box-shadow:none; }
+  .meter { flex:1; display:flex; align-items:center; gap:8px; color:var(--muted); }
+  .track { flex:1; height:6px; border-radius:3px; background:var(--bar); overflow:hidden; }
+  .track i { display:block; height:100%; width:0; background:linear-gradient(90deg,var(--fill1),var(--fill2)); transition:width .3s; }
+  button { border:0; background:var(--card); color:var(--ink); border-radius:999px; padding:8px 14px; font:inherit; cursor:pointer; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+  .hint { color:var(--muted); font-size:13px; text-align:center; }
+  .loading { position:absolute; inset:0; display:grid; place-items:center; color:#fff; font-size:16px; background:rgba(60,40,20,.25); }
+  /* gesture guide */
+  .guide { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; width:100%; }
+  .nightBtn { position:absolute; top:12px; right:12px; z-index:3; width:38px; height:38px; padding:0; border-radius:50%;
+              display:grid; place-items:center; font-size:17px; cursor:pointer; background:rgba(255,255,255,.78); backdrop-filter:blur(4px); }
+  :root[data-theme="dark"] .nightBtn { background:rgba(30,26,22,.7); }
+  .breeds { display:flex; align-items:center; gap:8px; width:100%; overflow-x:auto; padding:2px; scrollbar-width:none; }
+  .breeds .br { flex:none; display:flex; align-items:center; gap:7px; padding:3px 12px 3px 3px; font-size:13px; border:2px solid transparent; }
+  .breeds .br img { width:30px; height:30px; border-radius:50%; object-fit:cover; display:block; }
+  .breeds .br.on { border-color:var(--fill2); }
+  .breeds .br.busy { opacity:.6; }
+  .coats.off .sw { opacity:.25; pointer-events:none; }
+  .coats { display:flex; align-items:center; gap:8px; width:100%; overflow-x:auto; padding:2px; scrollbar-width:none; }
+  .coats .sw { flex:none; width:30px; height:30px; padding:0; border-radius:50%; border:2px solid transparent;
+               box-shadow:0 1px 3px rgba(0,0,0,.25), inset 0 0 0 1px rgba(0,0,0,.08); transition:transform .15s; }
+  .coats .sw:hover { transform:scale(1.1); }
+  .coats .sw.on { border-color:var(--fill2); transform:scale(1.12); }
+  .coats .coatName { margin-left:6px; color:var(--muted); font-size:13px; white-space:nowrap; }
+  .step { display:flex; align-items:center; gap:10px; background:var(--card); border-radius:14px; padding:10px 12px;
+          box-shadow:0 1px 4px rgba(0,0,0,.06); border:2px solid transparent; transition:border-color .3s; }
+  .step .num { flex:none; width:28px; height:28px; border-radius:50%; display:grid; place-items:center; background:var(--bar); font-weight:600; transition:background .3s; }
+  .step .txt { flex:1; display:flex; flex-direction:column; gap:2px; min-width:0; }
+  .step small { color:var(--muted); font-size:12px; line-height:1.3; }
+  .step button { flex:none; padding:6px 11px; font-size:12px; background:var(--bg); box-shadow:none; }
+  .step.now { border-color:var(--fill1); }
+  .step.done .num { background:var(--fill2); color:#fff; }
+  .step.playing button { background:var(--fill2); color:#fff; }
+  .spot { position:absolute; left:0; top:0; pointer-events:none; opacity:0; transition:opacity .5s; z-index:2; }
+  .spot.on { opacity:1; }
+  .spot i { position:absolute; width:48px; height:48px; margin:-24px 0 0 -24px; border-radius:50%;
+            border:3px solid rgba(255,255,255,.95); box-shadow:0 0 0 2px rgba(217,119,58,.55), 0 2px 10px rgba(0,0,0,.25);
+            animation:pulse 1.3s ease-out infinite; }
+  .spot span { position:absolute; transform:translate(-50%, 34px); white-space:nowrap; background:rgba(40,28,18,.75); color:#fff;
+               font-size:13px; padding:4px 10px; border-radius:999px; }
+  @keyframes pulse { 0% { transform:scale(.6); opacity:1; } 100% { transform:scale(1.35); opacity:0; } }
+  @media (max-width:1100px) { .guide { grid-template-columns:repeat(2,1fr); } }
+  @media (max-width:760px) { .guide { grid-template-columns:1fr; } .step small { display:none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="stage" id="stage">
+    <canvas id="c"></canvas>
+    <div class="spot" id="spot"><i></i><span></span></div>
+    <button class="nightBtn" id="nightBtn" data-i18n-title="nightOn">🌙</button>
+    <div class="loading" id="loading" data-i18n="loading">Loading the cat…</div>
+  </div>
+  <div class="breeds" id="breeds"></div>
+  <div class="coats" id="coats"></div>
+  <div class="bar" id="bar">
+    <div class="meter"><span>♥</span><div class="track"><i id="fill"></i></div><span id="mood"></span></div>
+    <div class="shape" id="shapePanel">
+      <label><b data-i18n="size">Size</b> <span style="font-size:11px">🐈</span><input type="range" id="size" min="0.8" max="1.2" step="0.01" value="1"><span style="font-size:20px">🐈</span></label>
+      <label><b data-i18n="body">Body</b> <span>▯</span><input type="range" id="fat" min="-1" max="1" step="0.01" value="0"><span>⬮</span></label>
+      <div class="row"><button id="shapeReset" data-i18n="reset">Reset</button></div>
+    </div>
+    <button id="shapeBtn" data-i18n="shapeBtn">⚙ Size &amp; body</button>
+    <button id="langBtn">🌐 Tiếng Việt</button>
+    <button id="reset" data-i18n="startOver">↺ Start over</button>
+    <button id="sound">🔇 Sound off</button>
+  </div>
+  <div class="guide" id="guide">
+    <div class="step" data-step="stroke"><span class="num">1</span>
+      <div class="txt"><b data-i18n="s1t"></b><small data-i18n="s1d"></small></div>
+      <button data-demo="stroke"></button></div>
+    <div class="step" data-step="scratch"><span class="num">2</span>
+      <div class="txt"><b data-i18n="s2t"></b><small data-i18n="s2d"></small></div>
+      <button data-demo="scratch"></button></div>
+    <div class="step" data-step="grab"><span class="num">3</span>
+      <div class="txt"><b data-i18n="s3t"></b><small data-i18n="s3d"></small></div>
+      <button data-demo="grab"></button></div>
+    <div class="step" data-step="belly"><span class="num">4</span>
+      <div class="txt"><b data-i18n="s4t"></b><small data-i18n="s4d"></small></div>
+      <button data-demo="belly"></button></div>
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+const OUT = 'assets/top/out/';
+
+// ---------------------------------------------------------------------------
+// Language (English / Tiếng Việt)
+// ---------------------------------------------------------------------------
+const I18N = {
+  en: { title:'Pet the Cat', loading:'Loading the cat…', dozing:'dozing', purring:' & purring', blissed:'blissed out',
+        hipsUp:'hips up!', tailHeld:'tail held!', shapeBtn:'⚙ Size & body', size:'Size', body:'Body', reset:'Reset',
+        startOver:'↺ Start over', soundOff:'🔇 Sound off', soundOn:'🔊 Sound on', nightOn:'Night mode', nightOff:'Day mode',
+        lang:'🌐 Tiếng Việt', showMe:'▶ Show me', stop:'■ Stop',
+        s1t:'Stroke the back', s1d:'Hold the mouse down and drag slowly from the neck toward the tail.',
+        s2t:'Scratch above the tail', s2d:'Hold down and rub quickly where the tail starts. The cat stands up and raises its hips.',
+        s3t:'Grab the tail', s3d:'Press on the tail and drag. It follows your hand, then swishes back.',
+        s4t:'Keep petting', s4d:'Fill the heart bar and the cat rolls onto its back. Stop and it rolls back.',
+        spotStroke:'hold & drag slowly →', spotScratch:'hold & rub quickly here', spotGrab:'press & drag the tail', spotBelly:'keep stroking',
+        natural:'natural coat (colours are for the orange shorthair)' },
+  vi: { title:'Vuốt ve mèo', loading:'Đang tải mèo…', dozing:'đang ngủ', purring:' & gừ gừ', blissed:'sướng rơn',
+        hipsUp:'nhổm mông!', tailHeld:'bị nắm đuôi!', shapeBtn:'⚙ Cỡ & dáng', size:'Cỡ', body:'Dáng', reset:'Đặt lại',
+        startOver:'↺ Làm lại', soundOff:'🔇 Tắt tiếng', soundOn:'🔊 Bật tiếng', nightOn:'Chế độ đêm', nightOff:'Chế độ ngày',
+        lang:'🌐 English', showMe:'▶ Xem mẫu', stop:'■ Dừng',
+        s1t:'Vuốt lưng', s1d:'Giữ chuột và kéo chậm từ cổ về phía đuôi.',
+        s2t:'Gãi phía trên đuôi', s2d:'Giữ chuột và gãi nhanh ở gốc đuôi. Mèo sẽ đứng dậy và nhổm mông lên.',
+        s3t:'Nắm đuôi', s3d:'Nhấn vào đuôi rồi kéo. Đuôi đi theo tay bạn, thả ra thì vẫy lại.',
+        s4t:'Tiếp tục vuốt ve', s4d:'Lấp đầy thanh trái tim, mèo sẽ lật ngửa bụng. Dừng lại thì mèo lăn về.',
+        spotStroke:'giữ & kéo chậm →', spotScratch:'giữ & gãi nhanh ở đây', spotGrab:'nhấn & kéo đuôi', spotBelly:'cứ vuốt tiếp',
+        natural:'màu lông tự nhiên (đổi màu dùng cho mèo mướp lông ngắn)' },
+};
+const store = { get(k){ try { return localStorage.getItem(k); } catch (_) { return null; } },
+                set(k, v){ try { localStorage.setItem(k, v); } catch (_) {} } };
+let LANG = store.get('cat-lang') || ((navigator.language || '').toLowerCase().startsWith('vi') ? 'vi' : 'en');
+const tr = k => (I18N[LANG][k] ?? I18N.en[k] ?? k);
+
+// ---------------------------------------------------------------------------
+// Coats: the photo is a ginger tabby; other coats are painted over it in the shader.
+// A/B/C = dark/mid/light coat colour along the fur's brightness (keeps the stripes and hair detail),
+// w = how much the white fur (chest, paws) takes the coat too, k = stripe contrast,
+// patch 1 = calico patches, 2 = tortoiseshell mottling, point = Siamese face & tail.
+// ---------------------------------------------------------------------------
+// Breeds: each has its own pair of photos (side + belly-up) in the same pose, so all gestures work the same.
+const BREEDS = [
+  { id:'shorthair', en:'Orange shorthair', vi:'Mèo mướp lông ngắn' },
+  { id:'persian',   en:'Persian',          vi:'Mèo Ba Tư' },
+  { id:'mainecoon', en:'Maine Coon',       vi:'Mèo Maine Coon' },
+  { id:'sphynx',    en:'Sphynx',           vi:'Mèo không lông Sphynx' },
+  { id:'british',   en:'British Shorthair', vi:'Mèo Anh lông ngắn' },
+  { id:'bengal',    en:'Bengal',           vi:'Mèo Bengal' },
+  { id:'ragdoll',   en:'Ragdoll',          vi:'Mèo Ragdoll' },
+];
+const COATS = [
+  { id:'ginger', en:'Orange tabby', vi:'Mướp cam', sw:'radial-gradient(circle at 35% 30%,#f4c48a,#d27a35 60%,#a9561f)' },
+  { id:'cream', en:'Cream', vi:'Kem', A:[.55,.42,.30], B:[.84,.70,.54], C:[.98,.91,.80], k:.85, w:0 },
+  { id:'brown', en:'Brown tabby', vi:'Mướp nâu', A:[.10,.07,.045], B:[.40,.29,.19], C:[.70,.57,.40], k:1.2, w:0 },
+  { id:'gray', en:'Gray tabby', vi:'Mướp xám', A:[.12,.12,.13], B:[.43,.43,.44], C:[.76,.75,.74], k:1.2, w:0 },
+  { id:'silver', en:'Silver tabby', vi:'Mướp bạc', A:[.10,.10,.11], B:[.58,.58,.60], C:[.94,.94,.95], k:1.4, w:0 },
+  { id:'blue', en:'Russian blue', vi:'Mèo xám xanh', A:[.16,.18,.21], B:[.40,.43,.48], C:[.66,.70,.76], k:.9, w:1 },
+  { id:'black', en:'Black', vi:'Mèo mun', A:[.02,.018,.016], B:[.07,.062,.058], C:[.26,.23,.21], k:.8, w:1 },
+  { id:'tuxedo', en:'Tuxedo', vi:'Mèo đen trắng', A:[.02,.018,.016], B:[.07,.062,.058], C:[.26,.23,.21], k:.8, w:0,
+    sw:'linear-gradient(135deg,#1b1816 55%,#f3efe9 55%)' },
+  { id:'chocolate', en:'Chocolate', vi:'Sô-cô-la', A:[.06,.035,.02], B:[.25,.15,.09], C:[.52,.36,.25], k:1.05, w:1 },
+  { id:'white', en:'White', vi:'Mèo trắng', A:[.62,.60,.57], B:[.86,.85,.82], C:[1,.99,.97], k:.8, w:0 },
+  { id:'calico', en:'Calico', vi:'Tam thể', A:[.02,.018,.016], B:[.08,.07,.062], C:[.30,.26,.23], k:.95, w:0, patch:1,
+    sw:'conic-gradient(#f3efe9 0 35%,#d98a3d 0 65%,#1d1a18 0)' },
+  { id:'tortie', en:'Tortoiseshell', vi:'Đồi mồi', A:[.03,.022,.018], B:[.10,.07,.05], C:[.26,.18,.13], k:.7, w:.85, patch:2,
+    sw:'conic-gradient(#2a1d15 0 30%,#b5642c 0 45%,#2a1d15 0 70%,#8a4a22 0)' },
+  { id:'siamese', en:'Siamese', vi:'Mèo Xiêm', A:[.66,.57,.46], B:[.87,.80,.69], C:[.97,.94,.87], k:.6, w:.6, point:1,
+    sw:'radial-gradient(circle at 50% 38%,#efe4d2 42%,#4a3426 78%)' },
+];
+
+// ---------------------------------------------------------------------------
+// World space: x in [0, A], y in [0, 1]; A = room aspect. The cat photo frame
+// (same aspect as the room) is placed at FRAME_SCALE, centred.
+// Region coords below are normalised to the cat photo frame (0..1).
+// ---------------------------------------------------------------------------
+const FRAME_SCALE = 0.80, FRAME_CY = 0.52;
+const POSE = {
+  side:  { tex:'body-side',  head:[0.14,0.42,0.085], neck:[0.23,0.43], ear1:[0.150,0.335,0.125,0.30], ear2:[0.100,0.450,0.080,0.47],
+           hip:[0.62,0.38], tailBase:[0.700,0.405], belly:[0.42,0.55], label:'dozing' },
+  belly: { tex:'body-belly', head:[0.14,0.45,0.085], neck:[0.23,0.45], ear1:[0.120,0.330,0.105,0.31], ear2:[0.090,0.480,0.075,0.50],
+           hip:[0.63,0.45], tailBase:[0.700,0.440], belly:[0.50,0.45], label:'blissed' },
+  // standing, back arched, rump raised, tail up (its own photo; the tail is part of it)
+  hipsup: { tex:'body-hipsup', head:[0.23,0.385,0.05], neck:[0.31,0.385], ear1:[0.21,0.245,0,0], ear2:[0.245,0.33,0,0],
+           hip:[0.63,0.21], tailBase:[0.695,0.19], belly:[0.485,0.45], label:'hipsUp' },
+};
+const PAD = 48;   // px of transparent padding added around cat textures (room for blur + bulge)
+
+// ---------------------------------------------------------------------------
+// GL setup
+// ---------------------------------------------------------------------------
+const canvas = document.getElementById('c');
+const glOpts = { alpha:false, antialias:true, premultipliedAlpha:true, stencil:true };
+const gl = canvas.getContext('webgl2', glOpts) || canvas.getContext('webgl', glOpts);
+const GL2 = typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext;
+const aniso = gl.getExtension('EXT_texture_filter_anisotropic');
+gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+
+const VS = `
+attribute vec2 pos; attribute vec2 uv;
+uniform vec4 cam;      // centre.xy, zoom, roll
+uniform vec2 halfView; // half view size in world units at zoom 1
+varying vec2 vUv; varying vec2 vPos;
+void main(){
+  vec2 d = (pos - cam.xy) * cam.z;
+  float c = cos(cam.w), s = sin(cam.w);
+  d = vec2(c*d.x - s*d.y, s*d.x + c*d.y);
+  gl_Position = vec4(d.x/halfView.x, -d.y/halfView.y, 0., 1.);
+  vUv = uv; vPos = pos;
+}`;
+const FS = `
+precision highp float;
+varying vec2 vUv; varying vec2 vPos;
+uniform sampler2D tex, comb;
+uniform int mode;          // 0 plain, 1 shadow, 2 cat body (fur)
+uniform vec4 tint;         // rgb multiplier, alpha multiplier
+uniform vec3 shadowCol;
+uniform vec2 hand; uniform float press;    // world-space hand + contact
+uniform vec3 hip;          // world x,y, lift amount
+uniform float time;
+uniform vec2 texel;        // 1/texture size
+uniform float sharp;       // unsharp amount
+uniform float night; uniform vec2 lamp;   // night grade (0..1) and the warm lamp pool centre
+uniform float coatOn, isTail, coatW, coatK, coatPatch, coatPoint;
+uniform vec3 coatA, coatB, coatC, headC;  // coat colour ramp; head centre + radius (Siamese points)
+float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
+float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
+  return mix(mix(hash(i), hash(i+vec2(1,0)), f.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y); }
+vec3 ramp3(float x){ return x < 0.5 ? mix(coatA, coatB, x*2.0) : mix(coatB, coatC, x*2.0 - 1.0); }
+// repaint the ginger photo as another coat, keeping its brightness detail (stripes, hairs, shading)
+vec3 recolor(vec3 u){
+  float mx = max(u.r, max(u.g, u.b)), mn = min(u.r, min(u.g, u.b));
+  float sat = (mx - mn) / max(mx, 1e-3), L = dot(u, vec3(0.299, 0.587, 0.114));
+  float o = smoothstep(0.12, 0.32, sat);                       // 1 = ginger fur, 0 = white fur
+  float x = clamp(0.5 + (clamp((L - 0.18) / 0.72, 0.0, 1.0) - 0.5) * coatK, 0.0, 1.0);
+  vec3 g = ramp3(x), fur = g;
+  if (coatPatch > 0.5) {
+    bool calico = coatPatch < 1.5;
+    float n = calico ? vnoise(vUv*vec2(4.0,2.6) + 3.7)*0.7 + vnoise(vUv*vec2(9.0,6.0))*0.3
+                     : vnoise(vUv*vec2(13.0,8.0))*0.6 + vnoise(vUv*vec2(5.0,3.2) + 1.3)*0.4;
+    n += (vnoise(vUv*vec2(170.0,110.0)) - 0.5) * 0.07;       // ragged, furry patch edges
+    float m = calico ? smoothstep(0.49, 0.56, n) : smoothstep(0.42, 0.58, n);
+    vec3 warm = calico ? u : u * vec3(0.92, 0.66, 0.48);
+    fur = mix(warm, g, m);
+  }
+  vec3 r = mix(mix(u, coatPatch > 1.5 ? fur : g, coatW), fur, o);
+  if (coatPoint > 0.5) {
+    vec2 dh = vPos - headC.xy;
+    float pm = isTail > 0.5 ? smoothstep(0.05, 0.6, vUv.x) : exp(-dot(dh, dh) / (headC.z*headC.z));
+    r = mix(r, mix(vec3(0.08, 0.055, 0.04), vec3(0.42, 0.31, 0.23), x), smoothstep(0.15, 0.75, pm) * 0.9);
+  }
+  return r;
+}
+void main(){
+  vec4 t = texture2D(tex, vUv);
+  if (t.a < 0.01) discard;                          // empty pixels must not block the stencil
+  if (mode == 1) { gl_FragColor = vec4(shadowCol, 1.0) * t.a * tint.a; return; }
+  float fibre = 0.0;          // fine hair detail of the photo itself (+ = light strand, - = gap between strands)
+  if (sharp > 0.0) {
+    // light unsharp mask on the photo detail (fur, fabric); skipped on the silhouette edge to avoid halos
+    vec4 n1 = texture2D(tex, vUv + vec2(texel.x, 0.)), n2 = texture2D(tex, vUv - vec2(texel.x, 0.));
+    vec4 n3 = texture2D(tex, vUv + vec2(0., texel.y)), n4 = texture2D(tex, vUv - vec2(0., texel.y));
+    float solid = smoothstep(0.96, 1.0, min(min(n1.a, n2.a), min(n3.a, n4.a)));
+    fibre = clamp(dot(t.rgb - (n1.rgb + n2.rgb + n3.rgb + n4.rgb) * 0.25, vec3(4.0)), -1.0, 1.0) * solid;
+    t.rgb = clamp(t.rgb + sharp * solid * (t.rgb - (n1.rgb + n2.rgb + n3.rgb + n4.rgb) * 0.25), 0.0, t.a);
+  }
+  if (coatOn > 0.5) t.rgb = recolor(t.rgb / t.a) * t.a;
+  vec3 c = t.rgb * tint.rgb;
+  if (mode == 2) {
+    // fur sheen from the comb map: rg = stroke direction, a = how recently stroked
+    vec4 cm = texture2D(comb, vUv);
+    vec2 dir = cm.rg * 2.0 - 1.0; float I = cm.a;
+    float withGrain = dir.x;                         // fur lies from head (left) to tail (right)
+    // with the grain: strands lie flat and catch the light; against it: strands lift, gaps darken
+    c *= 1.0 + I * (0.05 * max(withGrain, 0.0) * (1.0 + 0.6*fibre) - 0.07 * max(-withGrain, 0.0) * (0.4 - 1.2*fibre));
+    c += t.a * I * 0.018 * max(withGrain, 0.0) * (0.6 + 0.6*fibre);
+    // palm contact: fur compresses & darkens a touch
+    vec2 dh = vPos - hand; float h = exp(-dot(dh,dh) / 0.0022);
+    c *= 1.0 - 0.10 * h * press;
+    // hips raised toward the camera: a little brighter (closer to the window light)
+    vec2 dp = vPos - hip.xy; float hm = exp(-dot(dp,dp) / 0.012);
+    c *= 1.0 + 0.24 * hm * hip.z;
+  }
+  if (night > 0.0) {
+    // moonlight: cool and dim; a warm lamp pool around the cat keeps it visible
+    float L = dot(c, vec3(0.299, 0.587, 0.114));
+    vec3 moon = mix(c, vec3(L), 0.45) * vec3(0.28, 0.33, 0.48);
+    vec2 dl = (vPos - lamp) * vec2(0.8, 1.0);
+    float pool = exp(-dot(dl, dl) / 0.2);
+    c = mix(c, moon + c * vec3(0.80, 0.60, 0.40) * pool, night);
+  }
+  gl_FragColor = vec4(c, t.a) * tint.a;
+}`;
+function shader(type, src){ const s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s); if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw gl.getShaderInfoLog(s); return s; }
+const prog = gl.createProgram();
+gl.attachShader(prog, shader(gl.VERTEX_SHADER, VS)); gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, FS));
+gl.linkProgram(prog); gl.useProgram(prog);
+const U = {}; for (const n of ['cam','halfView','tex','comb','mode','tint','shadowCol','hand','press','hip','time','texel','sharp',
+                 'night','lamp','coatOn','isTail','coatW','coatK','coatPatch','coatPoint','coatA','coatB','coatC','headC']) U[n] = gl.getUniformLocation(prog, n);
+const aPos = gl.getAttribLocation(prog,'pos'), aUv = gl.getAttribLocation(prog,'uv');
+gl.uniform1i(U.tex, 0); gl.uniform1i(U.comb, 1);
+gl.uniform3f(U.shadowCol, 0.16, 0.10, 0.06);
+
+function makeTex(src, mips){
+  const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  if (src) {
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
+    t.w = src.width; t.h = src.height;
+    if (mips && GL2 && !/nomip/.test(location.search)) {        // clean downscaling (no shimmer) when the photo is drawn smaller than its pixels
+      gl.generateMipmap(gl.TEXTURE_2D);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      if (aniso) gl.texParameterf(gl.TEXTURE_2D, aniso.TEXTURE_MAX_ANISOTROPY_EXT, 4);
+    }
+  }
+  return t;
+}
+// dynamic mesh: interleaved pos.xy uv.xy
+class Mesh {
+  constructor(nVerts, indices){
+    this.data = new Float32Array(nVerts*4);
+    this.vbo = gl.createBuffer(); this.ibo = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.ibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+    this.count = indices.length;
+  }
+  draw(){
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo); gl.bufferData(gl.ARRAY_BUFFER, this.data, gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(aPos); gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 16, 0);
+    gl.enableVertexAttribArray(aUv);  gl.vertexAttribPointer(aUv,  2, gl.FLOAT, false, 16, 8);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.ibo); gl.drawElements(gl.TRIANGLES, this.count, gl.UNSIGNED_SHORT, 0);
+  }
+}
+function gridIndices(cols, rows){
+  const idx = [];
+  for (let y=0; y<rows; y++) for (let x=0; x<cols; x++) {
+    const a = y*(cols+1)+x, b = a+1, c = a+cols+1, d = c+1;
+    idx.push(a,b,c, b,d,c);
+  }
+  return idx;
+}
+const quad = new Mesh(4, [0,1,2, 1,3,2]);
+function setQuad(corners, u0=0, v0=0, u1=1, v1=1){ // corners: TL, TR, BL, BR world points
+  const d = quad.data, uvs = [[u0,v0],[u1,v0],[u0,v1],[u1,v1]];
+  for (let i=0;i<4;i++){ d[i*4]=corners[i][0]; d[i*4+1]=corners[i][1]; d[i*4+2]=uvs[i][0]; d[i*4+3]=uvs[i][1]; }
+}
+
+// ---------------------------------------------------------------------------
+// Image helpers
+// ---------------------------------------------------------------------------
+const load = src => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+function canvasOf(w,h){ const c=document.createElement('canvas'); c.width=w; c.height=h; return c; }
+function padded(img, pad){ const c=canvasOf(img.width+2*pad, img.height+2*pad); c.getContext('2d').drawImage(img,pad,pad); return c; }
+function blurred(src, px){ const c=canvasOf(src.width, src.height), g=c.getContext('2d'); g.filter=`blur(${px}px)`; g.drawImage(src,0,0); return c; }
+function alphaGrid(src, w, h){ // low-res alpha lookup for hit testing
+  const c = canvasOf(w,h), g = c.getContext('2d', { willReadFrequently:true }); g.drawImage(src,0,0,w,h);
+  const p = g.getImageData(0,0,w,h).data, a = new Float32Array(w*h); for (let i=0;i<w*h;i++) a[i]=p[i*4+3]/255;
+  return { w, h, a, at(u,v){ const x=Math.floor(u*w), y=Math.floor(v*h); return (x<0||y<0||x>=w||y>=h)?0:a[y*w+x]; } };
+}
+// per-column centre line of an alpha image (used to lay the tail strip along the tail)
+function centreLine(src, n){
+  const W=src.width, H=src.height, g=src.getContext('2d',{willReadFrequently:true}), p=g.getImageData(0,0,W,H).data, out=[];
+  for (let i=0;i<=n;i++){
+    const x = Math.min(W-1, Math.round(i/n*(W-1))); let s=0, m=0;
+    for (let y=0;y<H;y++){ const a=p[(y*W+x)*4+3]; s+=a*y; m+=a; }
+    out.push(m>0 ? s/m/H : 0.5);
+  }
+  for (let k=0;k<3;k++) for (let i=1;i<n;i++) out[i]=(out[i-1]+out[i]*2+out[i+1])/4; // smooth
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Springs
+// ---------------------------------------------------------------------------
+function spring(o, k, target, dt, hz, damp){
+  const n = Math.max(1, Math.ceil(160*dt)), h = dt/n, w = 2*Math.PI*hz, kv = k+'V';
+  if (o[kv] === undefined) o[kv] = 0;
+  for (let i=0;i<n;i++){ o[kv] += (w*w*(target-o[k]) - 2*w*damp*o[kv])*h; o[k] += h*o[kv]; }
+}
+const follow = (v, target, dt, tau) => v + (target - v) * (1 - Math.exp(-dt / tau));
+const clamp = (x,a,b) => Math.max(a, Math.min(b, x));
+const lerp = (a,b,k) => a + (b-a)*k;
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+let A = 1817/1014;                       // world width
+let FR = null;                           // frame rect in world
+const S = {
+  pose:'side', flop:0, flopFrom:'side', flopTo:'side', flopping:false,
+  comfort:0, lastPet:-99, lastTail:-99, tailTime:0,
+  screen:[0.5,0.5], hand:[0,0], handS:[0,0], over:false, down:false,
+  vel:[0,0], velS:[0,0], press:0, alt:1,
+  load:0, shearX:0, shearY:0, head:0, lift:0,
+  breath:0, purr:0, earA:0, earB:0, nextEar:2,
+  cam:[0,0,1,0], tailAng:[], tailVel:[], swishT:0, nextFlick:4, flick:0,
+  seen:{}, demo:null, size:1, fat:0,
+  grabbing:false, grabIdx:1, grabAng:0, wasDown:false, tailPts:null, tailRest:null, lastGrab:-99,
+  night:0, nightOn:false, coat:'ginger', breed:'shorthair',
+};
+let EDGE = {};                           // per mesh vertex: 0 at the outline .. 1 well inside the body
+let T = {}, IM = {}, HIT = {}, TL = {}, bodyMesh, tailMesh, comb, combCtx, combTex;   // TL: tail centre lines per pose
+let sound = null, soundOn = false;
+const COLS = 56, ROWS = 36, TN = 28;
+
+function setFrame(){                     // cat photo frame in world space; S.size scales the cat
+  const fw = FRAME_SCALE*S.size*A, fh = FRAME_SCALE*S.size;
+  FR = { x: (A-fw)/2, y: FRAME_CY - fh/2, w: fw, h: fh };
+}
+function frameToWorld(fx, fy){ return [FR.x + fx*FR.w, FR.y + fy*FR.h]; }
+function worldToFrame(x, y){ return [(x-FR.x)/FR.w, (y-FR.y)/FR.h]; }
+function poseWorld(key, name){ const p = POSE[key][name]; return frameToWorld(p[0], p[1]); }
+
+// ---------------------------------------------------------------------------
+// Camera / input
+// ---------------------------------------------------------------------------
+const stage = document.getElementById('stage');
+let stageW = 0, stageH = 0;
+function layout(){
+  const bar = document.getElementById('bar'), guide = document.getElementById('guide'), coats = document.getElementById('coats'), breeds = document.getElementById('breeds');
+  const maxW = Math.min(window.innerWidth - 32, 1400), maxH = window.innerHeight - 32 - 56 - bar.offsetHeight - guide.offsetHeight - coats.offsetHeight - breeds.offsetHeight;
+  let w = maxW, h = w / A; if (h > maxH) { h = maxH; w = h * A; }
+  stageW = w; stageH = h;
+  stage.style.width = w+'px'; stage.style.height = h+'px'; bar.style.width = w+'px'; guide.style.width = w+'px'; coats.style.width = w+'px'; breeds.style.width = w+'px';
+  const dpr = Math.min(window.devicePixelRatio||1, 2);
+  canvas.width = Math.round(w*dpr); canvas.height = Math.round(h*dpr);
+  gl.viewport(0, 0, canvas.width, canvas.height);
+}
+window.addEventListener('resize', layout);
+function screenToWorld(p){
+  const [cx, cy, z, r] = S.cam;
+  const dx = (p[0]-0.5)*A, dy = p[1]-0.5;
+  const c = Math.cos(-r), s = Math.sin(-r);
+  return [cx + (c*dx - s*dy)/z, cy + (s*dx + c*dy)/z];
+}
+function worldToScreen(w){
+  const [cx, cy, z, r] = S.cam;
+  const dx = (w[0]-cx)*z, dy = (w[1]-cy)*z, c = Math.cos(r), s = Math.sin(r);
+  return [(c*dx - s*dy)/A + 0.5, (s*dx + c*dy) + 0.5];
+}
+let lastW = null, lastT = 0;
+function toUV(e){ const r = stage.getBoundingClientRect(); return [(e.clientX-r.left)/r.width, (e.clientY-r.top)/r.height]; }
+stage.addEventListener('pointerdown', e => { stopDemo(); try{ stage.setPointerCapture(e.pointerId); }catch(_){} S.down = true; S.over = true; S.screen = toUV(e); lastW = screenToWorld(S.screen); lastT = performance.now(); if (soundOn) sound?.resume(); });
+stage.addEventListener('pointermove', e => {
+  if (S.demo) stopDemo();
+  const t = performance.now(); S.over = true; S.screen = toUV(e);
+  const w = screenToWorld(S.screen);
+  if (lastW) { const dt = Math.max(8, t-lastT)/1000; S.vel = [(w[0]-lastW[0])/dt, (w[1]-lastW[1])/dt]; }
+  lastW = w; lastT = t;
+});
+const up = () => { S.down = false; };
+stage.addEventListener('pointerup', up); stage.addEventListener('pointercancel', up);
+stage.addEventListener('pointerleave', () => { if (S.demo) return; S.over = false; up(); });
+
+// purr
+function makeSound(){
+  const ac = new (window.AudioContext||window.webkitAudioContext)();
+  const len = ac.sampleRate*2, nb = ac.createBuffer(1,len,ac.sampleRate), d = nb.getChannelData(0);
+  let last=0; for (let i=0;i<len;i++){ last = last*0.97 + (Math.random()*2-1)*0.03; d[i] = last*6; }
+  const src = ac.createBufferSource(); src.buffer = nb; src.loop = true;
+  const lp = ac.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=380;
+  const am = ac.createGain(); am.gain.value = 0;
+  const lfo = ac.createOscillator(); lfo.frequency.value = 26; const lg = ac.createGain(); lg.gain.value = 0.5;
+  lfo.connect(lg); lg.connect(am.gain);
+  const bias = ac.createConstantSource(); bias.offset.value = 0.5; bias.connect(am.gain);
+  const master = ac.createGain(); master.gain.value = 0;
+  src.connect(lp); lp.connect(am); am.connect(master); master.connect(ac.destination);
+  src.start(); lfo.start(); bias.start();
+  return { master, resume:() => ac.resume() };
+}
+document.getElementById('sound').addEventListener('click', e => {
+  soundOn = !soundOn; if (soundOn && !sound) sound = makeSound(); sound?.resume();
+  e.target.textContent = tr(soundOn ? 'soundOn' : 'soundOff');
+});
+
+// ---------------------------------------------------------------------------
+// Behaviour
+// ---------------------------------------------------------------------------
+const fill = document.getElementById('fill'), mood = document.getElementById('mood');
+// Nearest point of the cat's body to a world point, allowing the fingers to hang a little past the
+// edge. Keeps the hand on the cat when the pointer wanders off, so the arm never gets long.
+const OVERHANG = 0.03;
+function keepOnCat(w0){
+  const key = S.flop > 0.5 ? S.flopTo : S.pose, tex = POSE[key].tex, G = HIT[tex], R = IM.rect[tex];
+  if (!G || !G.near) return w0;
+  const w = unfatten(w0, key);
+  const [fx, fy] = worldToFrame(w[0], w[1]);
+  const u = (fx - R.x)/R.w, v = (fy - R.y)/R.h;
+  if (G.at(u, v) > 0.35) return w0;
+  const x = clamp(Math.floor(u*G.w), 0, G.w-1), y = clamp(Math.floor(v*G.h), 0, G.h-1);
+  const j = G.near[y*G.w + x], p = frameToWorld(R.x + ((j % G.w) + 0.5)/G.w*R.w, R.y + (Math.floor(j / G.w) + 0.5)/G.h*R.h);
+  const dx = w[0]-p[0], dy = w[1]-p[1], d = Math.hypot(dx, dy);
+  return fatten(d <= OVERHANG ? w : [p[0] + dx/d*OVERHANG, p[1] + dy/d*OVERHANG], key);
+}
+// for every cell of a hit grid: index of the nearest cell inside the body
+function nearestInside(G, cw, ch){
+  const edge = [];
+  for (let y=0; y<G.h; y++) for (let x=0; x<G.w; x++) {
+    if (G.a[y*G.w+x] <= 0.5) continue;
+    const out = (xx, yy) => xx<0 || yy<0 || xx>=G.w || yy>=G.h || G.a[yy*G.w+xx] <= 0.5;
+    if (out(x-1,y) || out(x+1,y) || out(x,y-1) || out(x,y+1)) edge.push(x, y);
+  }
+  const near = new Int32Array(G.w*G.h);
+  for (let y=0; y<G.h; y++) for (let x=0; x<G.w; x++) {
+    let best = 1e9, bi = 0;
+    for (let k=0; k<edge.length; k+=2) { const dx = (edge[k]-x)*cw, dy = (edge[k+1]-y)*ch, d = dx*dx + dy*dy; if (d < best) { best = d; bi = edge[k+1]*G.w + edge[k]; } }
+    near[y*G.w+x] = bi;
+  }
+  G.near = near;
+}
+function zoneAt(w){
+  const key = S.flop > 0.5 ? S.flopTo : S.pose;
+  const [fx, fy] = worldToFrame(...unfatten(w, key));
+  const R = IM.rect[POSE[key].tex];
+  const onBody = HIT[POSE[key].tex].at((fx - R.x)/R.w, (fy - R.y)/R.h) > 0.35;
+  const near = (p, r) => Math.hypot((fx-p[0])*1.79, fy-p[1]) < r;
+  const P = POSE[key];
+  if (near(P.tailBase, 0.10) || (near(P.hip, 0.07) && fx > P.hip[0]-0.02)) return 'rump';
+  if (!onBody) return null;
+  if (key === 'hipsup') return 'rump';
+  if (near(P.head, P.head[2]*1.6)) return 'head';
+  return 'body';
+}
+// nearest point of the tail (past the rump) to a world point
+// the tail layer belongs to the lying poses; the standing hips-up photo has its tail in it
+function tailPose(){
+  const ks = S.flopping ? (S.flop > 0.5 ? [S.flopTo, S.flopFrom] : [S.flopFrom, S.flopTo]) : [S.pose];
+  return ks.find(k => k !== 'hipsup') || null;
+}
+function tailHit(w){
+  const P = S.tailPts; if (!P || !tailPose()) return null;
+  let best = 1e9, bi = -1;
+  const i0 = Math.ceil((tailRootU(tailPose()) + 0.1) * (TN-1));
+  for (let i = i0; i < TN; i++) { const d = Math.hypot(w[0]-P[i][0], w[1]-P[i][1]); if (d < best) { best = d; bi = i; } }
+  return { i:bi, d:best };
+}
+function update(dt, now){
+  demoStep(dt, now);
+  const key0 = S.flop > 0.5 ? S.flopTo : S.pose, raw = screenToWorld(S.screen);
+  // tail grab: press on the tail and the hand holds it; the tail bends toward the pointer
+  const th = S.over ? tailHit(raw) : null, onTail = !!th && th.d < 0.034*S.size;
+  if (S.down && !S.wasDown && onTail) { S.grabbing = true; S.grabIdx = th.i; }
+  if (!S.down) S.grabbing = false;
+  if (S.grabbing && S.tailRest) {
+    const B = S.tailRest[0], P = S.tailRest[S.grabIdx];
+    let da = Math.atan2(raw[1]-B[1], raw[0]-B[0]) - Math.atan2(P[1]-B[1], P[0]-B[0]);
+    da = Math.atan2(Math.sin(da), Math.cos(da));
+    spring(S, 'grabAng', clamp(da, -1.1, 1.1), dt, 5, 0.85);
+    S.lastGrab = now;
+  } else spring(S, 'grabAng', 0, dt, 2.2, 0.25);          // let go: swishes back with a wobble
+  const tk = tailPose();
+  S.tailRest = tk ? tailChain(tk, false) : null; S.tailPts = tk ? tailChain(tk, true) : null;
+  if (!tk) S.grabbing = false;
+  S.hand = S.grabbing && S.tailPts ? S.tailPts[S.grabIdx].slice() : onTail ? raw : keepOnCat(raw);
+  S.handS[0] = follow(S.handS[0], S.hand[0], dt, 0.025);
+  S.handS[1] = follow(S.handS[1], S.hand[1], dt, 0.025);
+  S.velS[0] = follow(S.velS[0], S.vel[0], dt, 0.08); S.velS[1] = follow(S.velS[1], S.vel[1], dt, 0.08);
+  S.vel[0] *= Math.pow(0.02, dt); S.vel[1] *= Math.pow(0.02, dt);
+  const speed = Math.hypot(S.velS[0], S.velS[1]);
+
+  const zone = !S.over ? null : (S.grabbing || onTail) ? 'tail' : zoneAt(S.hand);
+  const touching = S.down && zone !== null;
+  S.zone = zone;
+  S.alt = follow(S.alt, touching ? 0 : (S.down ? 0.35 : 1), dt, 0.07);
+  S.press = follow(S.press, touching ? 1 : 0, dt, 0.06);
+  const stroking = touching && speed > 0.05 && zone !== 'tail';
+
+  if (S.grabbing) S.comfort -= dt * 0.03;                  // cats tolerate it, but don't love it
+  else if (stroking) {
+    S.lastPet = now;
+    const gentle = speed < 1.6;
+    S.comfort += dt * (S.demo ? S.demo.boost : 1) * (gentle ? (zone === 'rump' ? 0.06 : zone === 'head' ? 0.07 : 0.05) : -0.1);
+    if (zone === 'rump') { S.tailTime += dt; S.lastTail = now; }
+  } else if (now - S.lastPet > 2.5) S.comfort -= dt * 0.02;
+  if (now - S.lastTail > 0.5) S.tailTime = Math.max(0, S.tailTime - dt*1.5);
+  S.comfort = clamp(S.comfort, 0, 1);
+
+  // body physics (springs): weight of the hand, skin dragged along, head turning into the hand
+  const pullX = touching ? clamp(S.velS[0]*0.018, -0.018, 0.018) : 0;
+  const pullY = touching ? clamp(S.velS[1]*0.018, -0.014, 0.014) : 0;
+  spring(S, 'shearX', pullX, dt, 4.9, 0.81);
+  spring(S, 'shearY', pullY, dt, 4.9, 0.81);
+  spring(S, 'load', touching ? 1 : 0, dt, 3.2, 0.85);
+  const key = S.flop > 0.5 ? S.flopTo : S.pose;
+  let headT = 0;
+  if (touching && (zone === 'head' || zone === 'body')) {
+    const hw = poseWorld(key,'head'); headT = clamp((S.hand[1]-hw[1])*1.2, -0.09, 0.09) * (zone==='head'?1:0.35);
+  }
+  spring(S, 'head', headT + 0.012*Math.sin(now*0.4), dt, 1.4, 0.9);
+  // hips lift while the base of the tail is scratched (side pose)
+  const hasHips = !!T['body-hipsup'];        // cats without a standing photo fall back to the rump bulge
+  spring(S, 'lift', (!hasHips && key === 'side' && S.tailTime > 0.2 && now - S.lastTail < 0.8) ? 1 : 0, dt, 2.4, 0.7);
+  // breathing, slower & deeper as it relaxes
+  S.breath += dt * 2*Math.PI / (2.9 + S.comfort*1.6);
+  // ears: occasional flicks, twitch when the head is touched
+  if (now > S.nextEar) { S.earKick = (Math.random()<.5?1:-1) * (0.25+Math.random()*0.2); S.nextEar = now + 2.5 + Math.random()*5; S.earWhich = Math.random()<.6?0:1; }
+  if (S.earKick) { if (S.earWhich) S.earBV = (S.earBV||0) + S.earKick*30; else S.earAV = (S.earAV||0) + S.earKick*30; S.earKick = 0; }
+  spring(S, 'earA', zone==='head'&&touching ? 0.15 : S.grabbing ? -0.2 : 0, dt, 6, 0.35);   // ears go back while the tail is held
+  spring(S, 'earB', zone==='head'&&touching ? -0.12 : S.grabbing ? 0.16 : 0, dt, 6, 0.35);
+
+  // flop between side <-> belly (fast, so you never see a cross-fade)
+  // scratching the base of the tail always means hips up: never roll belly-up while it's being scratched,
+  // and if the cat is already belly-up, it rolls back onto its side to lift its hips
+  const scratching = now - S.lastTail < 1.5;
+  const go = (to, dur) => { S.flopping = true; S.flopFrom = S.pose; S.flopTo = to; S.flop = 0; S.flopDur = dur; };
+  if (!S.flopping) {
+    if (hasHips && S.pose !== 'hipsup' && S.tailTime > 0.2 && now - S.lastTail < 0.4) go('hipsup', 0.5);   // gets up, rump high
+    else if (S.pose === 'hipsup' && now - S.lastTail > 1.3) go('side', 0.6);                               // lies back down
+    else if (S.pose === 'side' && S.comfort > 0.82 && S.lift < 0.2 && !scratching) go('belly', 0.55);
+    else if (S.pose === 'belly' && (S.comfort < 0.55 || (!hasHips && S.tailTime > 0.4))) go('side', 0.55);
+  } else {
+    S.flop += dt / (S.flopDur || 0.55);
+    if (S.flop >= 1) { S.pose = S.flopTo; S.flopping = false; S.flop = 0; }
+  }
+
+  // tail: lazy swish + flicks; stiff & raised while hips are up; thumps when annoyed
+  S.swishT += dt * (0.9 - S.comfort*0.4);
+  if (now > S.nextFlick) { S.flick = (Math.random()<.5?-1:1)*(0.10+Math.random()*0.08); S.nextFlick = now + 3 + Math.random()*5; }
+  S.flick *= Math.pow(0.15, dt);
+  const amp = 0.035 * (1 - S.comfort*0.5) * (1 - S.lift*0.7);
+  for (let i=0;i<TN;i++){
+    const k = i/(TN-1);
+    const target = (amp*Math.sin(S.swishT*2.1 - k*2.2) + S.flick*k*k) * (0.3 + k)
+                 + (S.lift ? S.lift*0.02*Math.sin(now*18 + k*4) : 0)
+                 + (S.grabbing ? 0.06*Math.sin(now*9)*k*k*k : 0);        // the tip twitches while held
+    S.tailVel[i] = (S.tailVel[i]||0) + ((target - (S.tailAng[i]||0))*90 - (S.tailVel[i]||0)*11) * dt;
+    S.tailAng[i] = (S.tailAng[i]||0) + S.tailVel[i]*dt;
+  }
+
+  // fur comb map: paint stroke direction where the palm slides; slowly fades
+  if (stroking) {
+    const R = IM.rect[POSE[key].tex], [fx, fy] = worldToFrame(S.hand[0], S.hand[1]);
+    const u = (fx - R.x)/R.w, v = (fy - R.y)/R.h;
+    const dx = S.velS[0]/(speed||1), dy = S.velS[1]/(speed||1);
+    const col = `rgba(${Math.round((dx*.5+.5)*255)},${Math.round((dy*.5+.5)*255)},0,${Math.min(0.32, speed*0.45).toFixed(3)})`;
+    const g = combCtx.createRadialGradient(u*comb.width, v*comb.height, 0, u*comb.width, v*comb.height, comb.width*0.07);
+    g.addColorStop(0, col); g.addColorStop(1, 'rgba(128,128,0,0)');
+    combCtx.globalCompositeOperation = 'source-over'; combCtx.fillStyle = g;
+    combCtx.fillRect(0, 0, comb.width, comb.height);
+  }
+  S.combFade = (S.combFade||0) + dt;
+  if (S.combFade > 0.1) { combCtx.globalCompositeOperation = 'destination-out'; combCtx.fillStyle = 'rgba(0,0,0,0.06)'; combCtx.fillRect(0,0,comb.width,comb.height); S.combFade = 0; }
+
+  // camera: slow drift, follows the hand a touch, closes in as the cat relaxes
+  const bc = poseWorld(key, 'belly');
+  const zT = 1.04 + 0.015*Math.sin(now*0.1) + S.comfort*0.22;
+  let cx = lerp(A/2, bc[0], 0.25 + S.comfort*0.5) + 0.01*Math.sin(now*0.07) + (S.over ? (S.screen[0]-0.5)*0.02 : 0);
+  let cy = lerp(0.5, bc[1], 0.25 + S.comfort*0.5) + 0.008*Math.sin(now*0.09+1) + (S.over ? (S.screen[1]-0.5)*0.015 : 0);
+  S.cam[2] = follow(S.cam[2], zT, dt, 1.6);
+  const z = S.cam[2], mx = A/2*(1-1/z) - 0.01, my = 0.5*(1-1/z) - 0.01;
+  S.cam[0] = follow(S.cam[0], clamp(cx, A/2-mx, A/2+mx), dt, 1.4);
+  S.cam[1] = follow(S.cam[1], clamp(cy, 0.5-my, 0.5+my), dt, 1.4);
+  S.cam[3] = follow(S.cam[3], 0.006*Math.sin(now*0.05), dt, 2);
+
+  const targetPurr = (now - S.lastPet < 1.5 && S.comfort > 0.15) ? Math.min(1, S.comfort*1.5) : 0;
+  S.purr = follow(S.purr, targetPurr, dt, 0.5);
+  if (sound) sound.master.gain.value = soundOn ? S.purr*0.35 : 0;
+  fill.style.width = (S.comfort*100).toFixed(1) + '%';
+  mood.textContent = S.grabbing ? tr('tailHeld') : (S.lift > 0.5 || key === 'hipsup') ? tr('hipsUp') : tr(POSE[key].label) + (key==='side' && S.comfort>0.4 ? tr('purring') : '');
+  if (S.comfort > 0.3) S.seen.stroke = true;
+  if (S.lift > 0.6 || S.pose === 'hipsup') S.seen.scratch = true;
+  if (S.grabbing && Math.abs(S.grabAng) > 0.25) S.seen.grab = true;
+  S.night = follow(S.night, S.nightOn ? 1 : 0, dt, 0.5);
+  S.wasDown = S.down;
+  if (S.pose === 'belly') S.seen.belly = true;
+  renderGuide(now, key);
+}
+
+// ---------------------------------------------------------------------------
+// Gesture guide: step cards, a pulsing marker on the cat, and "Show me" demos
+// in which the hand performs the gesture by itself.
+// ---------------------------------------------------------------------------
+const STEPS = ['stroke', 'scratch', 'grab', 'belly'];
+const SPOT_LABEL = { stroke:'spotStroke', scratch:'spotScratch', grab:'spotGrab', belly:'spotBelly' };
+const GRAB_AT = Math.round(TN*0.62);
+const spot = document.getElementById('spot'), spotLabel = spot.querySelector('span');
+const ease = k => k*k*(3-2*k);
+function backLine(key){            // a stroke line along the back, neck -> hips, in cat-frame coords
+  const P = POSE[key];
+  return [[lerp(P.neck[0], P.hip[0], 0.12), lerp(P.neck[1], P.hip[1], 0.12) + 0.03],
+          [lerp(P.neck[0], P.hip[0], 0.85), lerp(P.neck[1], P.hip[1], 0.85) + 0.03]];
+}
+// where the hand goes at time t of a demo, in cat-frame coords
+function demoPath(name, t, key){
+  const P = POSE[key];
+  if (name === 'grab') {                 // reach for the tail, hold it, swing it back and forth
+    const R = S.tailRest; if (!R) return { pt:[0.85, 0.4], down:false };
+    const B = R[0], Q = R[GRAB_AT];
+    if (t < 0.4) return { pt:worldToFrame(Q[0], Q[1]), down:false };
+    const q = rotAround(Q, B, 0.75*Math.sin((t-0.4)*2*Math.PI*0.45));
+    return { pt:worldToFrame(q[0], q[1]), down:t < 4.8 };
+  }
+  if (name === 'scratch') {
+    const base = [lerp(P.hip[0], P.tailBase[0], 0.55), lerp(P.hip[1], P.tailBase[1], 0.55)];
+    return { pt:[base[0] + 0.011*Math.sin(t*2*Math.PI*3.2), base[1] + 0.004*Math.cos(t*2*Math.PI*3.2)], down:true };
+  }
+  const [a, b] = backLine(key), cyc = 1.8, ph = t % cyc, dn = 1.2;
+  if (ph < dn) { const k = ease(ph/dn); return { pt:[lerp(a[0],b[0],k), lerp(a[1],b[1],k)], down:true }; }
+  const k = ease((ph-dn)/(cyc-dn));                         // lift the hand and bring it back to the neck
+  return { pt:[lerp(b[0],a[0],k), lerp(b[1],a[1],k) - 0.03*Math.sin(Math.PI*k)], down:false };
+}
+function startDemo(name, now){
+  S.demo = { name, t0:now, boost: name === 'belly' ? 4 : name === 'stroke' ? 2.5 : 1, delay:0 };
+  S.demoPrev = null;
+  if (name === 'scratch' && S.pose === 'belly') { S.comfort = Math.min(S.comfort, 0.5); S.demo.delay = 0.9; }  // roll back first
+  if (name === 'belly' && S.pose === 'belly') { S.comfort = 0.5; S.demo.delay = 0.9; }                       // replay the roll
+}
+function stopDemo(){ if (!S.demo) return; S.demo = null; S.down = false; }
+function demoStep(dt, now){
+  const D = S.demo; if (!D) return;
+  const t = now - D.t0, key = S.flop > 0.5 ? S.flopTo : S.pose;
+  let end = D.name === 'stroke' ? 7.2 : D.name === 'scratch' ? 6 : D.name === 'grab' ? 5.6 : 30;
+  if (D.name === 'belly' && t > D.delay && S.pose === 'belly' && !S.flopping) { if (D.doneAt === undefined) D.doneAt = t; if (t - D.doneAt > 1.5) end = 0; }
+  if (t > end) { S.demo = null; S.down = false; S.over = false; return; }
+  const tt = Math.max(0, t - D.delay), { pt, down } = demoPath(D.name, tt, key);
+  const w = frameToWorld(pt[0], pt[1]), prev = S.demoPrev || w;
+  S.vel = [(w[0]-prev[0])/Math.max(dt,1e-3), (w[1]-prev[1])/Math.max(dt,1e-3)]; S.demoPrev = w;
+  S.screen = worldToScreen(w); S.over = true; S.down = down && t >= D.delay;
+}
+let guideSig = '';
+function renderGuide(now, key){
+  const current = STEPS.find(n => !S.seen[n]);
+  const sig = STEPS.map(n => (S.seen[n]?'d':'') + (n===current?'n':'') + (S.demo && S.demo.name===n?'p':'')).join('|');
+  if (sig !== guideSig) {
+    guideSig = sig;
+    document.querySelectorAll('.step').forEach((el, i) => {
+      const n = el.dataset.step, playing = S.demo && S.demo.name === n;
+      el.classList.toggle('done', !!S.seen[n]); el.classList.toggle('now', n === current);
+      el.classList.toggle('playing', !!playing);
+      el.querySelector('.num').textContent = S.seen[n] ? '✓' : String(i+1);
+      el.querySelector('button').textContent = playing ? tr('stop') : tr('showMe');
+    });
+  }
+  // pulsing marker on the cat for the next step, while the user is not touching
+  const show = current && !S.demo && !S.down && now - S.lastPet > 2.5 && now - S.lastGrab > 2.5 && S.tailRest
+;
+  spot.classList.toggle('on', !!show);
+  if (show) {
+    let pt;
+    if (current === 'scratch') pt = demoPath('scratch', now, key).pt;
+    else if (current === 'grab') { const q = S.tailRest[GRAB_AT]; pt = worldToFrame(q[0], q[1]); }
+    else { const [a, b] = backLine(key), k = ease((now % 2.4) / 2.4); pt = [lerp(a[0],b[0],k), lerp(a[1],b[1],k)]; }
+    const sc = worldToScreen(frameToWorld(pt[0], pt[1]));
+    spot.style.transform = `translate(${(sc[0]*stageW).toFixed(1)}px, ${(sc[1]*stageH).toFixed(1)}px)`;
+    spotLabel.textContent = tr(SPOT_LABEL[current]);
+  }
+}
+document.getElementById('guide').addEventListener('click', e => {
+  const b = e.target.closest('button[data-demo]'); if (!b || !FR) return;
+  const name = b.dataset.demo, now = performance.now()/1000 + (window.__simT || 0);
+  if (S.demo && S.demo.name === name) stopDemo(); else startDemo(name, now);
+});
+// size & body shape (remembered on this device)
+const sizeIn = document.getElementById('size'), fatIn = document.getElementById('fat');
+function applyShape(save){
+  S.size = +sizeIn.value; S.fat = +fatIn.value; if (A && FR) setFrame();
+  if (save) try { localStorage.setItem('cat-shape', JSON.stringify({ size:S.size, fat:S.fat })); } catch (_) {}
+}
+try { const v = JSON.parse(localStorage.getItem('cat-shape') || 'null'); if (v) { sizeIn.value = v.size; fatIn.value = v.fat; } } catch (_) {}
+applyShape(false);
+sizeIn.addEventListener('input', () => applyShape(true)); fatIn.addEventListener('input', () => applyShape(true));
+document.getElementById('shapeBtn').addEventListener('click', e => { e.stopPropagation(); document.getElementById('shapePanel').classList.toggle('open'); });
+document.getElementById('shapeReset').addEventListener('click', () => { sizeIn.value = 1; fatIn.value = 0; applyShape(true); });
+document.addEventListener('click', e => { if (!e.target.closest('#shapePanel, #shapeBtn')) document.getElementById('shapePanel').classList.remove('open'); });
+// night mode
+const nightBtn = document.getElementById('nightBtn');
+function setNight(on, save){
+  S.nightOn = on; document.documentElement.dataset.theme = on ? 'dark' : 'light';
+  nightBtn.textContent = on ? '☀️' : '🌙'; nightBtn.dataset.i18nTitle = on ? 'nightOff' : 'nightOn';
+  nightBtn.title = tr(nightBtn.dataset.i18nTitle); nightBtn.setAttribute('aria-label', nightBtn.title);
+  if (save) store.set('cat-night', on ? '1' : '0');
+}
+nightBtn.addEventListener('pointerdown', e => e.stopPropagation());
+nightBtn.addEventListener('click', e => { e.stopPropagation(); setNight(!S.nightOn, true); });
+setNight(store.get('cat-night') === '1', false);
+S.night = S.nightOn ? 1 : 0;
+
+// coats
+const coatsEl = document.getElementById('coats'), coatName = document.createElement('span');
+coatName.className = 'coatName';
+const hex = c => '#' + c.map(v => Math.round(v*255).toString(16).padStart(2,'0')).join('');
+for (const c of COATS) {
+  const b = document.createElement('button'); b.className = 'sw'; b.dataset.coat = c.id;
+  b.style.background = c.sw || `radial-gradient(circle at 35% 30%, ${hex(c.C)}, ${hex(c.B)} 55%, ${hex(c.A)})`;
+  b.addEventListener('click', () => setCoat(c.id, true));
+  coatsEl.appendChild(b);
+}
+coatsEl.appendChild(coatName);
+function setCoat(id, save){
+  const c = COATS.find(x => x.id === id) || COATS[0]; S.coat = c.id;
+  if (c.A) {
+    gl.uniform3fv(U.coatA, c.A); gl.uniform3fv(U.coatB, c.B); gl.uniform3fv(U.coatC, c.C);
+    gl.uniform1f(U.coatK, c.k); gl.uniform1f(U.coatW, c.w); gl.uniform1f(U.coatPatch, c.patch || 0); gl.uniform1f(U.coatPoint, c.point || 0);
+  }
+  coatsEl.querySelectorAll('.sw').forEach(b => { b.classList.toggle('on', b.dataset.coat === c.id); b.title = COATS.find(x => x.id === b.dataset.coat)[LANG]; b.setAttribute('aria-label', b.title); });
+  coatsEl.classList.toggle('off', S.breed !== 'shorthair');
+  coatName.textContent = S.breed === 'shorthair' ? c[LANG] : tr('natural');
+  if (save) store.set('cat-coat', c.id);
+}
+setCoat(store.get('cat-coat') || 'ginger', false);
+
+// breeds
+const breedsEl = document.getElementById('breeds');
+for (const b of BREEDS) {
+  const el = document.createElement('button'); el.className = 'br'; el.dataset.breed = b.id;
+  const im = document.createElement('img'); im.alt = ''; im.src = OUT + (b.id === 'shorthair' ? '' : b.id + '-') + 'thumb.webp';
+  const sp = document.createElement('span'); el.append(im, sp);
+  el.addEventListener('click', () => pickBreed(b.id));
+  breedsEl.appendChild(el);
+}
+function renderBreeds(){
+  breedsEl.querySelectorAll('.br').forEach(el => {
+    const b = BREEDS.find(x => x.id === el.dataset.breed);
+    el.querySelector('span').textContent = b[LANG]; el.classList.toggle('on', b.id === S.breed);
+  });
+}
+async function pickBreed(id){
+  if (!META || id === S.breed) return;
+  const el = breedsEl.querySelector(`[data-breed="${id}"]`); el.classList.add('busy');
+  try { await loadCat(id); store.set('cat-breed', id); } finally { el.classList.remove('busy'); }
+  renderBreeds(); setCoat(S.coat, false);
+}
+
+// language
+function applyLang(){
+  document.documentElement.lang = LANG; document.title = tr('title');
+  document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = tr(el.dataset.i18n); });
+  document.querySelectorAll('[data-i18n-title]').forEach(el => { el.title = tr(el.dataset.i18nTitle); el.setAttribute('aria-label', el.title); });
+  document.getElementById('langBtn').textContent = tr('lang');
+  document.getElementById('sound').textContent = tr(soundOn ? 'soundOn' : 'soundOff');
+  guideSig = ''; setCoat(S.coat, false); renderBreeds();
+  document.querySelectorAll('.step button').forEach(b => { b.textContent = tr('showMe'); });
+  mood.textContent = tr('dozing');
+}
+document.getElementById('langBtn').addEventListener('click', () => { LANG = LANG === 'vi' ? 'en' : 'vi'; store.set('cat-lang', LANG); applyLang(); if (FR) layout(); });
+applyLang();
+
+document.getElementById('reset').addEventListener('click', () => {
+  stopDemo(); S.comfort = 0; S.seen = {}; S.lift = 0; S.tailTime = 0; S.lastPet = -99;
+});
+
+// ---------------------------------------------------------------------------
+// Geometry
+// ---------------------------------------------------------------------------
+// Body shape: fat > 0 widens the ribcage and belly around the spine (the head stays as it is), < 0 slims.
+function fatK(key, x){
+  if (!S.fat) return null;
+  const P = POSE[key], n = frameToWorld(P.neck[0], P.neck[1]), h = frameToWorld(P.hip[0], P.hip[1]), b = poseWorld(key, 'belly');
+  const t = clamp((x - n[0])/(h[0] - n[0]), 0, 1), ys = lerp(n[1], h[1], t) - 0.02*FR.h;
+  const bx = (x - b[0])/(0.21*FR.w), guard = clamp((x - n[0])/(0.07*FR.w), 0, 1);
+  return [ys, 1 + 0.24*S.fat*Math.exp(-bx*bx)*guard*guard*(3-2*guard)];
+}
+function fatten(p, key){ const f = fatK(key, p[0]); return f ? [p[0], f[0] + (p[1]-f[0])*f[1]] : p; }
+function unfatten(p, key){ const f = fatK(key, p[0]); return f ? [p[0], f[0] + (p[1]-f[0])/f[1]] : p; }
+function rotAround(p, c, a){ const s=Math.sin(a), co=Math.cos(a), dx=p[0]-c[0], dy=p[1]-c[1]; return [c[0]+co*dx-s*dy, c[1]+s*dx+co*dy]; }
+function buildBody(key, now, flopScale){
+  const P = POSE[key], R = IM.rect[P.tex], d = bodyMesh.data;
+  const hand = S.handS, hip = poseWorld(key,'hip'), neck = poseWorld(key,'neck'), head = poseWorld(key,'head');
+  const hr = P.head[2]*FR.w, bc = poseWorld(key,'belly');
+  const e1b = frameToWorld(P.ear1[0],P.ear1[1]), e2b = frameToWorld(P.ear2[0],P.ear2[1]);
+  const br = Math.sin(S.breath) + 0.12*Math.sin(S.breath*2 - 0.5);
+  const purrJ = S.purr * 0.0005 * Math.sin(now*150);
+  let i = 0;
+  for (let y=0; y<=ROWS; y++) for (let x=0; x<=COLS; x++) {
+    const u = x/COLS, v = y/ROWS;
+    let p = fatten(frameToWorld(R.x + u*R.w, R.y + v*R.h), key);
+    // breathing: ribcage swells around the belly centre
+    let dx = p[0]-bc[0], dy = p[1]-bc[1];
+    const bm = Math.exp(-(dx*dx/0.045 + dy*dy/0.02));
+    p[0] += dx*0.022*br*bm; p[1] += dy*0.045*br*bm + purrJ*bm;
+    // head turns into the hand around the neck
+    const dh = Math.hypot(p[0]-head[0], p[1]-head[1]);
+    const hm = hr > 0 ? clamp(1 - (dh - hr*0.9)/(hr*0.9), 0, 1) : 0;
+    if (hm > 0) p = rotAround(p, neck, S.head*hm);
+    // ears flick
+    const e1 = Math.exp(-((p[0]-e1b[0])**2 + (p[1]-e1b[1])**2)/0.0009);
+    const e2 = Math.exp(-((p[0]-e2b[0])**2 + (p[1]-e2b[1])**2)/0.0009);
+    if (e1 > 0.02) p = rotAround(p, e1b, S.earA*e1);
+    if (e2 > 0.02) p = rotAround(p, e2b, S.earB*e2);
+    // hips toward the camera
+    // (closer to the camera = bigger), with the skin rippling the way it does when the tail base is scratched
+    const ddx = p[0]-hip[0], ddy = p[1]-hip[1], lm = Math.exp(-(ddx*ddx + ddy*ddy)/0.026);
+    const rip = 1 + 0.06*Math.sin(now*21 + ddx*90);
+    p[0] += ddx*0.26*S.lift*lm*rip; p[1] += ddy*0.26*S.lift*lm*rip;
+    // palm: weight spreads the fur outward, skin slides with the stroke
+    const hx = p[0]-hand[0], hy = p[1]-hand[1], hd2 = hx*hx + hy*hy;
+    // near the silhouette the skin slides under the fur but the outline barely moves
+    const ek = 0.2 + 0.8*EDGE[P.tex][y*(COLS+1)+x];
+    const g1 = Math.exp(-hd2/0.004)*ek, g2 = Math.exp(-hd2/0.012)*ek;
+    p[0] += hx*0.10*S.load*g1*S.press + S.shearX*g2;
+    p[1] += hy*0.10*S.load*g1*S.press + S.shearY*g2;
+    // flop squash
+    if (flopScale) { p[0] = bc[0] + (p[0]-bc[0])*flopScale[0]; p[1] = bc[1] + (p[1]-bc[1])*flopScale[1]; p = rotAround(p, bc, flopScale[2]); }
+    d[i++] = p[0]; d[i++] = p[1]; d[i++] = u; d[i++] = v;
+  }
+}
+// centre line of the tail in world space (base -> tip). withGrab: include the bend from the holding hand.
+// Each pose has its own tail layer cut from that photo, so at rest it sits exactly where the photo had it.
+// The part of the strip that is still under the rump stays rigid; bending fades in just past the root,
+// so the join with the body never kinks.
+function tailRootU(key){ const R = IM.rect['tail-'+key]; return clamp((POSE[key].tailBase[0] - R.x) / R.w, 0, 0.6); }
+function tailChain(key, withGrab){
+  const R = IM.rect['tail-'+key], line = TL['tail-'+key], ru = tailRootU(key);
+  const pts = [];
+  for (let i=0;i<TN;i++){ const u=i/(TN-1); pts.push(frameToWorld(R.x + u*R.w, R.y + line[Math.round(u*(line.length-1))]*R.h)); }
+  const raise = 1 - 0.40*S.lift;                 // a raised tail points at the camera: looks shorter from above
+  const bend = u => { const t = clamp((u - ru - 0.01) / 0.14, 0, 1); return t*t*(3-2*t); };
+  const gi = Math.max(1, S.grabIdx), ga = withGrab ? S.grabAng : 0;
+  let wsum = 0; for (let i=1;i<=gi;i++) wsum += bend(i/(TN-1));
+  let cur = pts[0], ang = 0; const out = [cur], angs = [0];
+  for (let i=1;i<TN;i++){
+    const u = i/(TN-1), w = bend(u);
+    const sx = pts[i][0]-pts[i-1][0], sy = pts[i][1]-pts[i-1][1];
+    ang += w * (S.tailAng[i] || 0) * 14 / TN               // bend tuned for 14 segments; more segments = smoother curve
+         + (i <= gi && wsum > 0 ? ga * w / wsum : 0);       // the held point swings toward the hand, the rest follows
+    const c = Math.cos(ang), s = Math.sin(ang), f = lerp(1, raise, w);
+    cur = [cur[0] + (c*sx - s*sy)*f, cur[1] + (s*sx + c*sy)*f]; out.push(cur); angs.push(ang);
+  }
+  out.ang = angs;                               // how far each point has turned from the photo
+  return out;
+}
+function buildTail(key, shadowOff){
+  const R = IM.rect['tail-'+key], line = TL['tail-'+key], ru = tailRootU(key), d = tailMesh.data, out = tailChain(key, true);
+  const hh = R.h * FR.h / 2; let k = 0;
+  for (let i=0;i<TN;i++){
+    // texture columns stay upright as in the photo and only turn by the bend, so a curled or hooked tail
+    // is reproduced exactly at rest (no shearing of the fur)
+    const an = (out.ang[Math.max(0,i-1)] + out.ang[i] + out.ang[Math.min(TN-1,i+1)]) / 3;
+    const tx = Math.cos(an), ty = Math.sin(an);
+    const u = i/(TN-1), vc = line[Math.round(u*(line.length-1))];
+    const wf = 1 + 0.22*S.lift*clamp((u-ru-0.02)/0.12, 0, 1)*(1-u);   // raised tail is closer to the camera: a bit thicker (not the hidden root)
+    const top = [out[i][0] + ty*hh*2*vc*wf, out[i][1] - tx*hh*2*vc*wf], bot = [out[i][0] - ty*hh*2*(1-vc)*wf, out[i][1] + tx*hh*2*(1-vc)*wf];
+    d[k++] = top[0]+shadowOff[0]; d[k++] = top[1]+shadowOff[1]; d[k++] = u; d[k++] = 0;
+    d[k++] = bot[0]+shadowOff[0]; d[k++] = bot[1]+shadowOff[1]; d[k++] = u; d[k++] = 1;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Draw
+// ---------------------------------------------------------------------------
+function bind(t, unit=0, sharp=0){
+  gl.activeTexture(gl.TEXTURE0+unit); gl.bindTexture(gl.TEXTURE_2D, t);
+  if (unit === 0) { gl.uniform1f(U.sharp, /nosharp/.test(location.search) ? 0 : sharp); if (t.w) gl.uniform2f(U.texel, 1/t.w, 1/t.h); }
+}
+function draw(now){
+  gl.clearColor(lerp(0.85,0.08,S.night), lerp(0.8,0.08,S.night), lerp(0.72,0.11,S.night), 1); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.uniform1f(U.night, S.night); gl.uniform1f(U.coatOn, 0); gl.uniform1f(U.isTail, 0);
+  gl.uniform4fv(U.cam, S.cam); gl.uniform2f(U.halfView, A/2, 0.5); gl.uniform1f(U.time, now);
+  gl.uniform2fv(U.hand, S.handS); gl.uniform1f(U.press, S.press);
+
+  // room
+  gl.uniform1i(U.mode, 0); gl.uniform4f(U.tint, 1,1,1,1); bind(T.room, 0, 0.35);
+  setQuad([[0,0],[A,0],[0,1],[A,1]]); quad.draw();
+
+  // which body(s) to draw
+  const layers = [];
+  if (S.flopping) {
+    const f = S.flop, mid = 0.5;
+    const sq = 1 - 0.10*Math.sin(Math.PI*f);                 // squash while rolling
+    const rot = 0.06*Math.sin(Math.PI*f) * (S.flopTo==='belly' ? 1 : S.flopFrom==='belly' ? -1 : 0);
+    const a = clamp((f-0.38)/0.24, 0, 1);                   // quick swap in the middle of the roll
+    layers.push([S.flopFrom, 1-a, [1+0.03*Math.sin(Math.PI*f), sq, rot]]);
+    layers.push([S.flopTo, a, [1+0.03*Math.sin(Math.PI*f), sq, rot]]);
+  } else layers.push([S.pose, 1, null]);
+  const key = S.flopping ? (S.flop>0.5?S.flopTo:S.flopFrom) : S.pose;
+  const hip = poseWorld(key,'hip'), lampP = poseWorld(key,'belly'), hd = poseWorld(key,'head');
+  gl.uniform3f(U.hip, hip[0], hip[1], S.lift); gl.uniform2f(U.lamp, lampP[0], lampP[1]);
+  gl.uniform3f(U.headC, hd[0] + 0.01*FR.w, hd[1], Math.max(POSE[key].head[2], 0.06)*FR.w*0.95);
+
+  // shadows (light from upper-left -> shadow down-right)
+  const so = [0.006 + 0.03*S.lift, 0.010 + 0.04*S.lift];      // raised hips throw the shadow further
+  // the tail strip folds over itself on the inside of a bend: draw each pixel once (stencil) so the
+  // overlap doesn't show as a darker line
+  const once = (fn) => { gl.clear(gl.STENCIL_BUFFER_BIT); gl.enable(gl.STENCIL_TEST);
+    gl.stencilFunc(gl.EQUAL, 0, 0xff); gl.stencilOp(gl.KEEP, gl.KEEP, gl.INCR); fn(); gl.disable(gl.STENCIL_TEST); };
+  const tk = tailPose(), tailA = tk ? (layers.find(l => l[0] === tk) || [0, 1])[1] : 0;
+  if (tailA > 0) {
+    buildTail(tk, [so[0]*1.4, so[1]*1.4]);
+    gl.uniform1i(U.mode, 1); gl.uniform4f(U.tint, 1,1,1, 0.42*tailA); bind(T['tail-'+tk+'-sh']); once(() => tailMesh.draw());
+  }
+  gl.uniform1i(U.mode, 1);
+  for (const [k, a, fs] of layers) {
+    if (a <= 0) continue;
+    buildBody(k, now, fs);
+    // a standing cat is further from the cushion: its cast shadow falls further away and softer
+    const off = k === 'hipsup' ? [0.022, 0.036] : so;
+    const d = bodyMesh.data; for (let i=0;i<d.length;i+=4){ d[i]+=off[0]; d[i+1]+=off[1]; }
+    gl.uniform4f(U.tint, 1,1,1, (k === 'hipsup' ? 0.36 : 0.55)*a); bind(T[POSE[k].tex+'-blur']); bodyMesh.draw();
+    if (k === 'hipsup') {
+      // the darker patch right under a standing body, where its paws stand on the cushion
+      buildBody(k, now, [0.78, 0.66, 0]);
+      const d2 = bodyMesh.data; for (let i=0;i<d2.length;i+=4){ d2[i]+=0.006; d2[i+1]+=0.03; }
+      gl.uniform4f(U.tint, 1,1,1, 0.5*a); bind(T[POSE[k].tex+'-blur']); bodyMesh.draw();
+    }
+  }
+  // contact shadow: a tight dark rim right where the fur meets the cushion (lying poses only)
+  for (const [k, a, fs] of layers) {
+    if (a <= 0 || k === 'hipsup') continue;
+    buildBody(k, now, fs); gl.uniform4f(U.tint, 1,1,1, 0.45*a); bind(T[POSE[k].tex+'-contact']); bodyMesh.draw();
+  }
+  const coat = COATS.find(c => c.id === S.coat) || COATS[0];
+  if (tailA > 0) {
+    buildTail(tk, [0, 0.002]);
+    gl.uniform4f(U.tint, 1,1,1, 0.40*tailA); bind(T['tail-'+tk+'-ct']); once(() => tailMesh.draw());
+    // tail (under the body so the join hides beneath the hip fur)
+    buildTail(tk, [0,0]);
+    gl.uniform1f(U.coatOn, coat.A && S.breed === 'shorthair' ? 1 : 0); gl.uniform1f(U.isTail, 1);
+    gl.uniform1i(U.mode, 0); gl.uniform4f(U.tint, 1,1,1,tailA); bind(T['tail-'+tk], 0, 0.35); once(() => tailMesh.draw());
+    gl.uniform1f(U.isTail, 0);
+  }
+  gl.uniform1f(U.coatOn, coat.A && S.breed === 'shorthair' ? 1 : 0);
+  // body
+  gl.uniform1i(U.mode, 2); bind(combTex, 1);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, comb);
+  for (const [k, a, fs] of layers) {
+    if (a <= 0) continue;
+    buildBody(k, now, fs);
+    gl.uniform4f(U.tint, 1,1,1, a); bind(T[POSE[k].tex], 0, 0.5); bodyMesh.draw();
+  }
+  gl.uniform1f(U.coatOn, 0);
+  drawHand(now);
+}
+function drawHand(now){
+  if (!S.over) return;
+  const grip = (S.zone === 'rump' || S.zone === 'tail') && S.down;
+  const H = grip ? IM.grip : IM.hand, tex = grip ? T.grip : T.hand;
+  const W = 0.15, Hh = W * H.height / H.width * (grip ? IM.hand.width/IM.grip.width : 1) * (grip?1:1);
+  const scale = 1 + 0.07*S.alt;
+  const w = W * (grip ? IM.grip.width/IM.hand.width : 1) * scale, h = W * IM.hand.height/IM.hand.width * scale;
+  // arm comes from a shoulder below the bottom-right, so the hand angles naturally
+  const anchor = [S.handS[0], S.handS[1]];
+  if (grip && S.zone === 'rump') { anchor[0] += Math.sin(now*19)*0.004; anchor[1] += Math.cos(now*19)*0.002; }
+  const shoulder = [S.cam[0] + 0.18 + 0.35*(anchor[0] - S.cam[0]), S.cam[1] + 1.6];
+  const ang = Math.atan2(anchor[0]-shoulder[0], shoulder[1]-anchor[1]);
+  const ax = 0.5, ay = 0.17;                                  // contact point inside the hand image
+  const corner = (u, v) => { const lx = (u-ax)*w, ly = (v-ay)*h; const c=Math.cos(ang), s=Math.sin(ang); return [anchor[0] + c*lx - s*ly, anchor[1] + s*lx + c*ly]; };
+  // shadow: further away and softer the higher the hand is
+  const off = [0.010 + 0.035*S.alt, 0.016 + 0.05*S.alt];
+  const sh = (u,v) => { const p = corner(u,v); return [p[0]+off[0], p[1]+off[1]]; };
+  // the sleeve continues off-screen: repeat its straight lower part, mirrored each time so there is no seam
+  const S0 = 0.62, S1 = 0.985, SL = S1 - S0;
+  const sleeve = (pt) => { for (let i=0; i<6; i++) { const v0 = S1 + i*SL, v1 = v0 + SL, flip = i % 2 === 0;
+    setQuad([pt(0,v0), pt(1,v0), pt(0,v1), pt(1,v1)], 0, flip ? S1 : S0, 1, flip ? S0 : S1); quad.draw(); } };
+  gl.uniform1i(U.mode, 1); gl.uniform4f(U.tint, 1,1,1, 0.40 - 0.18*S.alt); bind(grip ? T.gripBlur : T.handBlur);
+  setQuad([sh(0,0), sh(1,0), sh(0,S1), sh(1,S1)], 0, 0, 1, S1); quad.draw(); sleeve(sh);
+  gl.uniform1i(U.mode, 0); gl.uniform4f(U.tint, 1,1,1,1); bind(tex, 0, 0.4);
+  setQuad([corner(0,0), corner(1,0), corner(0,S1), corner(1,S1)], 0, 0, 1, S1); quad.draw(); sleeve(corner);
+}
+
+// ---------------------------------------------------------------------------
+// Boot
+// ---------------------------------------------------------------------------
+let META = null;
+// Load one cat's photos (body side, body belly-up, tail) and build its textures, hit maps and edge maps.
+async function loadCat(id){
+  const main = id === 'shorthair' || !META.breeds?.[id], meta = main ? META : META.breeds[id], pre = main ? '' : id + '-';
+  const parts = ['body-side','body-belly','tail-side','tail-belly'].concat(meta['body-hipsup'] ? ['body-hipsup'] : []);
+  const imgs = Object.fromEntries(await Promise.all(parts.map(async n => [n, await load(OUT + pre + n + '.webp')])));
+  for (const k of Object.keys(T)) if (/^(body-|tail)/.test(k)) { gl.deleteTexture(T[k]); delete T[k]; }
+  const fw = FRAME_SCALE*A, fh = FRAME_SCALE;
+  const RES = meta.frame.w / 2064;           // blur radii were tuned at 2064 px
+  for (const n of parts) {
+    const isTail = n.startsWith('tail');
+    const m = meta[n], img = padded(imgs[n], Math.round(PAD*RES));
+    const px = Math.round(PAD*RES)/meta.frame.w, py = Math.round(PAD*RES)/meta.frame.h;
+    IM.rect[n] = { x: m.x - px, y: m.y - py, w: m.w + 2*px, h: m.h + 2*py };
+    T[n] = makeTex(img, true);
+    if (!isTail) { T[n+'-blur'] = makeTex(blurred(img, 14*RES)); T[n+'-contact'] = makeTex(blurred(img, 4*RES)); }
+    if (!isTail) { HIT[n] = alphaGrid(img, 160, Math.round(160*img.height/img.width));
+                        nearestInside(HIT[n], IM.rect[n].w*fw/HIT[n].w, IM.rect[n].h*fh/HIT[n].h);
+                        const EG = alphaGrid(blurred(img, 22*RES), 220, Math.round(220*img.height/img.width));
+                        EDGE[n] = new Float32Array((COLS+1)*(ROWS+1));
+                        for (let y=0;y<=ROWS;y++) for (let x=0;x<=COLS;x++) {
+                          const e = clamp((EG.at(x/COLS, y/ROWS) - 0.55)/0.4, 0, 1); EDGE[n][y*(COLS+1)+x] = e*e*(3-2*e); } }
+    if (isTail) { T[n+'-sh'] = makeTex(blurred(img, 8*RES)); T[n+'-ct'] = makeTex(blurred(img, 3*RES)); TL[n] = centreLine(img, 64); }
+  }
+  // where this cat's tail leaves the body in each photo; the hips sit just in front of it
+  if (meta.tailBase) {
+    POSE.side.tailBase = meta.tailBase.side.slice();  POSE.side.hip  = [meta.tailBase.side[0] - 0.08, meta.tailBase.side[1] - 0.025];
+    POSE.belly.tailBase = meta.tailBase.belly.slice(); POSE.belly.hip = [meta.tailBase.belly[0] - 0.07, meta.tailBase.belly[1] + 0.01];
+  }
+  S.breed = main ? 'shorthair' : id;
+  S.tailPts = S.tailRest = null; S.grabbing = false;
+  if (!meta['body-hipsup'] && (S.pose === 'hipsup' || S.flopTo === 'hipsup')) { S.pose = 'side'; S.flopping = false; }
+  // standing photo: each cat stands a little differently, so place its landmarks from its outline
+  if (meta['body-hipsup']) {
+    const r = meta['body-hipsup'], at = (u, v) => [r.x + u*r.w, r.y + v*r.h];
+    Object.assign(POSE.hipsup, { head:[...at(0.10, 0.38), 0], neck:at(0.22, 0.38), ear1:[-9,-9,0,0], ear2:[-9,-9,0,0],
+      hip:at(0.70, 0.22), tailBase:at(0.80, 0.14), belly:at(0.50, 0.48) });
+  }
+}
+(async () => {
+  META = await (await fetch(OUT + 'meta.json')).json();
+  const imgs = Object.fromEntries(await Promise.all(['room','hand','grip'].map(async n => [n, await load(OUT + n + '.webp')])));
+  A = META.room.w / META.room.h;
+  setFrame();
+  S.cam = [A/2, 0.5, 1.04, 0]; S.handS = [A/2, 0.5];
+  IM.rect = {};
+  await loadCat(store.get('cat-breed') || 'shorthair');
+  renderBreeds(); setCoat(S.coat, false);
+  T.room = makeTex(imgs.room, true);
+  IM.hand = imgs.hand; IM.grip = imgs.grip;
+  T.hand = makeTex(imgs.hand, true); T.grip = makeTex(imgs.grip, true);
+  T.handBlur = makeTex(blurred(padded(imgs.hand,0), 10)); T.gripBlur = makeTex(blurred(padded(imgs.grip,0), 10));
+  bodyMesh = new Mesh((COLS+1)*(ROWS+1), gridIndices(COLS, ROWS));
+  const ti = []; for (let i=0;i<TN-1;i++){ const a=i*2; ti.push(a,a+2,a+1, a+1,a+2,a+3); }
+  tailMesh = new Mesh(TN*2, ti);
+  comb = canvasOf(256, 160); combCtx = comb.getContext('2d'); combTex = makeTex(comb);
+  layout();
+  document.getElementById('loading').remove();
+  let prev = performance.now()/1000 + (window.__simT || 0);
+  const frame = () => { const now = performance.now()/1000 + (window.__simT || 0), dt = Math.min(0.05, now-prev); prev = now; if (!window.__pause) { update(dt, now); draw(now); } requestAnimationFrame(frame); };
+  requestAnimationFrame(frame);
+})().catch(e => { document.getElementById('loading').textContent = 'Failed to load: ' + e; console.error(e); });
+
+// ---------------------------------------------------------------------------
+// Test helpers (used for automated checks)
+// ---------------------------------------------------------------------------
+window.__cat = S;
+window.__toScreen = (fx, fy) => worldToScreen(frameToWorld(fx, fy));
+window.__demo = (name) => startDemo(name, window.__clock ?? (performance.now()/1000 + (window.__simT || 0)));
+// recording hooks: render at a fixed size, on a virtual clock (window.__clock), with the live loop paused
+window.__setRes = (w, h) => { canvas.width = w; canvas.height = h; gl.viewport(0, 0, w, h); };
+window.__layout = () => layout();
+window.__draw = () => draw(performance.now()/1000);
+window.__sim = (secs, from, to) => {
+  let t = window.__clock ?? (performance.now()/1000 + (window.__simT || 0));
+  const dt = 1/60, steps = Math.round(secs/dt);
+  for (let i=0;i<steps;i++){
+    t += dt;
+    if (from) {
+      window.__simPh = (window.__simPh || 0) + dt/0.7;
+      const ph = window.__simPh % 2, k = ph < 1 ? ph : 2-ph;
+      const prev = screenToWorld(S.screen);
+      S.down = true; S.over = true; S.screen = [from[0]+(to[0]-from[0])*k, from[1]+(to[1]-from[1])*k];
+      const w = screenToWorld(S.screen); S.vel = [(w[0]-prev[0])/dt, (w[1]-prev[1])/dt];
+    } else { S.down = false; }
+    update(dt, t);
+  }
+  if (window.__clock != null) window.__clock = t; else window.__simT = (window.__simT || 0) + secs;
+  draw(t);
+  return { pose:S.pose, flopping:S.flopping, comfort:+S.comfort.toFixed(2), lift:+S.lift.toFixed(2), zone:S.zone };
+};
+})();
+</script>
+</body>
+</html>

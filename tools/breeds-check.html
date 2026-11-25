@@ -1,0 +1,24 @@
+<!doctype html>
+<meta charset="utf-8"><title>Breed check</title>
+<body style="margin:0;background:#333">
+<canvas id="c" width="1600" height="1260" style="width:100%"></canvas>
+<script>
+// Every breed, side pose (left) and belly-up (right), composited on the room with its tail layer.
+const load = s => new Promise(r => { const i = new Image(); i.onload = () => r(i); i.src = s + '?' + Date.now(); });
+(async () => {
+  const O = '../assets/top/out/', meta = await (await fetch(O + 'meta.json?' + Date.now())).json();
+  const room = await load(O + 'room.webp'), g = document.getElementById('c').getContext('2d');
+  const cats = [['', meta], ...Object.entries(meta.breeds).map(([id, m]) => [id + '-', m])];
+  const W = 400, H = W * 1352 / 2422;
+  for (const [k, [p, m]] of cats.entries()) {
+    const [side, tailS, belly, tailB] = await Promise.all(['body-side', 'tail-side', 'body-belly', 'tail-belly'].map(n => load(O + p + n + '.webp')));
+    const put = (img, r, X, Y) => g.drawImage(img, X + r.x * W, Y + r.y * H, r.w * W, r.h * H);
+    const col = k % 2, row = Math.floor(k / 2), X0 = col * 2 * W, Y0 = row * H;
+    const mark = (tb, X, Y) => { g.strokeStyle = 'rgba(0,160,255,.9)'; g.beginPath(); g.arc(X + tb[0] * W, Y + tb[1] * H, 5, 0, 7); g.stroke(); };
+    g.drawImage(room, X0, Y0, W, H); put(tailS, m['tail-side'], X0, Y0); put(side, m['body-side'], X0, Y0); mark(m.tailBase.side, X0, Y0);
+    g.drawImage(room, X0 + W, Y0, W, H); put(tailB, m['tail-belly'], X0 + W, Y0); put(belly, m['body-belly'], X0 + W, Y0); mark(m.tailBase.belly, X0 + W, Y0);
+    g.fillStyle = '#fff'; g.font = 'bold 16px sans-serif'; g.fillText(p || 'main', X0 + 8, Y0 + 20);
+  }
+})();
+</script>
+</body>

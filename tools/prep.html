@@ -1,0 +1,372 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Asset prep</title>
+<body style="font:13px monospace;background:#777">
+<pre id="log"></pre>
+<script>
+// One-off asset preparation: chroma-key the green-screen photos, split cat body / tail,
+// crop, downscale and upload WebP files to /assets/top/out/ via the dev server (PUT).
+const log = m => (document.getElementById('log').textContent += m + '\n');
+const load = src => new Promise((r, j) => { const i = new Image(); i.onload = () => r(i); i.onerror = j; i.src = src; });
+const SRC = '../assets/top/';
+
+function canvasOf(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+
+const smooth = (e0, e1, x) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
+
+// Spread the colour of the selected pixels outward (blur at growing radii) so every pixel gets the
+// colour of its nearby selected pixels. Returns Float32 rgb per pixel (0..1).
+function plate(W, H, p, sel, radii, fallback) {
+  const src = canvasOf(W, H), sg = src.getContext('2d');
+  const d = sg.createImageData(W, H), q = d.data;
+  for (let j = 0; j < W * H; j++) if (sel[j]) { const i = j * 4; q[i] = p[i]; q[i + 1] = p[i + 1]; q[i + 2] = p[i + 2]; q[i + 3] = 255; }
+  sg.putImageData(d, 0, 0);
+  const outs = radii.map(r => {
+    const c = canvasOf(W, H), g = c.getContext('2d', { willReadFrequently: true });
+    g.filter = `blur(${r}px)`; g.drawImage(src, 0, 0); return g.getImageData(0, 0, W, H).data;
+  });
+  const res = new Float32Array(W * H * 3);
+  for (let j = 0; j < W * H; j++) {
+    let o = null; for (const b of outs) if (b[j * 4 + 3] > 10) { o = b; break; }
+    if (o) { res[j * 3] = o[j * 4] / 255; res[j * 3 + 1] = o[j * 4 + 1] / 255; res[j * 3 + 2] = o[j * 4 + 2] / 255; }
+    else { res[j * 3] = fallback[0]; res[j * 3 + 1] = fallback[1]; res[j * 3 + 2] = fallback[2]; }
+  }
+  return res;
+}
+
+// Green screen -> crisp alpha with clean edge colours. Returns a canvas at `scale`.
+//  1. local screen colour: the green varies across the photo, so sample it around each pixel
+//  2. narrow alpha ramp -> sharp silhouette
+//  3. edge pixels take their colour from the nearby solid fur/skin (no green or pink fringe)
+//  4. despill: no green cast anywhere (neutral subjects such as the grey sleeve get a strict clamp)
+function key(img, scale, neutral = false) {
+  const W = Math.round(img.width * scale), H = Math.round(img.height * scale), N = W * H;
+  const c = canvasOf(W, H), g = c.getContext('2d', { willReadFrequently: true });
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(img, 0, 0, W, H);
+  const d = g.getImageData(0, 0, W, H), p = d.data;
+  let bg = [0, 0, 0], n = 0;
+  for (const [x, y] of [[4, 4], [W - 5, 4], [4, H - 5], [W >> 1, 4], [4, H >> 1]]) {
+    const i = (y * W + x) * 4; bg[0] += p[i] / 255; bg[1] += p[i + 1] / 255; bg[2] += p[i + 2] / 255; n++;
+  }
+  bg = bg.map(v => v / n);
+  const bgKey = bg[1] - (bg[0] + bg[2]) / 2;
+  const gk = i => (p[i + 1] - (p[i] + p[i + 2]) / 2) / 255;
+
+  // 1. local screen colour
+  const sel = new Uint8Array(N);
+  for (let j = 0; j < N; j++) sel[j] = gk(j * 4) / bgKey > 0.8 ? 1 : 0;
+  const B = plate(W, H, p, sel, [10, 40, 140], bg);
+
+  // 2. alpha
+  const A = new Float32Array(N);
+  for (let j = 0; j < N; j++) {
+    const lk = B[j * 3 + 1] - (B[j * 3] + B[j * 3 + 2]) / 2;
+    const k = gk(j * 4) / (lk > 0.08 ? lk : bgKey);
+    let a = 1 - smooth(0.16, 0.58, k);
+    const x = j % W, y = (j / W) | 0;
+    if (x > W * 0.90 && y > H * 0.84) a = 0;                        // Gemini sparkle mark
+    A[j] = a < 0.06 ? 0 : a;
+  }
+
+  // 3. edge colour from nearby solid pixels. "deep" = solid and a few px inside the silhouette,
+  //    so its colour carries no screen reflection; the rim borrows its hue from there.
+  const am = canvasOf(W, H), amg = am.getContext('2d');
+  { const md = amg.createImageData(W, H); for (let j = 0; j < N; j++) md.data[j * 4 + 3] = A[j] > 0.97 ? 255 : 0; amg.putImageData(md, 0, 0); }
+  const ab = canvasOf(W, H), abg = ab.getContext('2d', { willReadFrequently: true });
+  abg.filter = `blur(${Math.max(2, Math.round(3 * W / 2752))}px)`; abg.drawImage(am, 0, 0);
+  const deepA = abg.getImageData(0, 0, W, H).data;
+  for (let j = 0; j < N; j++) sel[j] = deepA[j * 4 + 3] > 250 ? 1 : 0;
+  const F = plate(W, H, p, sel, [3, 8, 24], [0.5, 0.45, 0.4]);
+  for (let j = 0; j < N; j++) {
+    const i = j * 4, a = A[j], deep = sel[j] === 1;
+    let R = p[i] / 255, G = p[i + 1] / 255, Bl = p[i + 2] / 255;
+    const fR = F[j * 3], fG = F[j * 3 + 1], fB = F[j * 3 + 2];
+    if (a > 0 && a < 0.97) {
+      const ia = 1 / a;                                               // un-mix the local screen colour
+      const uR = Math.min(1, Math.max(0, (R - (1 - a) * B[j * 3]) * ia));
+      const uG = Math.min(1, Math.max(0, (G - (1 - a) * B[j * 3 + 1]) * ia));
+      const uB = Math.min(1, Math.max(0, (Bl - (1 - a) * B[j * 3 + 2]) * ia));
+      const w = smooth(0.6, 0.97, a);                                 // thin edge: mostly the nearby fur colour
+      R = fR + (uR - fR) * w; G = fG + (uG - fG) * w; Bl = fB + (uB - fB) * w;
+    }
+    // 4. despill
+    if (neutral) {                       // grey sleeve / skin: skin always has G < R, so G > R means screen spill
+      if (G > R) { const L = 0.3 * R + 0.59 * G + 0.11 * Bl, t = Math.min(1, (G - R) * 40); R += (L - R) * t; G += (L - G) * t; Bl += (L - Bl) * t; }
+      G = Math.min(G, (R + Bl) / 2 + 0.01);
+    } else if (!deep) {                  // rim: no greener (relative to red) than the deep fur next to it
+      G = Math.min(G, R * fG / Math.max(fR, 0.05) + 0.015, Math.max(R, Bl) * 1.01);
+    }
+    // ginger/white/cream fur is never greener than its red, nor much above the red/blue average:
+    // anything beyond that is the screen showing through thin fur (tail tip, whiskers, rim)
+    if (!neutral) G = Math.min(G, R, (R + Bl) / 2 + 0.03);
+    p[i] = Math.round(R * 255); p[i + 1] = Math.round(G * 255); p[i + 2] = Math.round(Bl * 255); p[i + 3] = Math.round(a * 255);
+  }
+  g.putImageData(d, 0, 0);
+  return c;
+}
+// keep only pixels where keep(xNorm, yNorm) is true
+function mask(src, keep) {
+  const W = src.width, H = src.height, c = canvasOf(W, H), g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(src, 0, 0);
+  const d = g.getImageData(0, 0, W, H), p = d.data;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (!keep(x / W, y / H)) p[(y * W + x) * 4 + 3] = 0;
+  g.putImageData(d, 0, 0);
+  return c;
+}
+// soft blend across a seam so the body/tail join is invisible: alpha ramps over `w` (normalised x)
+function ramp(src, x0, w, keepLeft) {
+  const W = src.width, H = src.height, c = canvasOf(W, H), g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(src, 0, 0);
+  const d = g.getImageData(0, 0, W, H), p = d.data;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const t = Math.min(1, Math.max(0, (x / W - x0) / w));
+    const k = keepLeft ? 1 - t : t;
+    p[(y * W + x) * 4 + 3] *= k;
+  }
+  g.putImageData(d, 0, 0);
+  return c;
+}
+// The tail layer keeps a little hip fur at its root so the join hides under the body. Trim that
+// root to the tail's own thickness, otherwise a block of hip fur swings along with the tail.
+function trimRoot(src, xRef) {
+  const W = src.width, H = src.height, g = src.getContext('2d', { willReadFrequently: true });
+  const d = g.getImageData(0, 0, W, H), p = d.data, xr = Math.round(xRef * W);
+  let top = H, bot = 0;
+  for (let y = 0; y < H; y++) if (p[(y * W + xr) * 4 + 3] > 128) { top = Math.min(top, y); bot = Math.max(bot, y); }
+  const soft = 0.02 * H;
+  for (let x = 0; x < xr; x++) {
+    const m = 0.012 * H + (xr - x) * 0.7;          // allowed band widens toward the body, so no straight cut
+    for (let y = 0; y < H; y++) {
+      const out = Math.max(top - m - y, y - bot - m, 0), k = Math.max(0, 1 - out / soft);
+      if (k < 1) p[(y * W + x) * 4 + 3] *= k * k;
+    }
+  }
+  g.putImageData(d, 0, 0);
+  return src;
+}
+// Fluffy outline: a cut-out edge looks like paper. Grow thin, tapered hairs out of the silhouette,
+// coloured from the fur just inside, leaning backwards (toward the tail) the way the coat lies.
+// They are drawn *behind* the cat, so they only show outside the edge.
+function fluff(src, seed = 1) {
+  const W = src.width, H = src.height, K = W / 2752, g = src.getContext('2d', { willReadFrequently: true });
+  const px = g.getImageData(0, 0, W, H).data;
+  const bl = canvasOf(W, H), bg = bl.getContext('2d', { willReadFrequently: true });
+  bg.filter = `blur(${Math.max(1, Math.round(4 * K))}px)`; bg.drawImage(src, 0, 0);
+  const ba = bg.getImageData(0, 0, W, H).data;
+  const A = (x, y) => ba[(y * W + x) * 4 + 3];
+  let r = seed * 2654435761 >>> 0;
+  const rnd = () => { r = (Math.imul(r, 1664525) + 1013904223) >>> 0; return r / 4294967296; };
+  const hairs = canvasOf(W, H), hg = hairs.getContext('2d');
+  hg.lineCap = 'round';
+  const step = Math.max(1, Math.round(2 * K));
+  let n = 0;
+  for (let y = 8; y < H - 8; y += step) for (let x = 8; x < W - 8; x += step) {
+    const a = A(x, y);
+    if (a < 70 || a > 185 || rnd() > 0.8) continue;
+    // outward normal from the blurred alpha
+    let nx = -(A(x + 2, y) - A(x - 2, y)), ny = -(A(x, y + 2) - A(x, y - 2));
+    const l = Math.hypot(nx, ny); if (l < 8) continue; nx /= l; ny /= l;
+    // colour of the solid fur a few px inside
+    const ix = Math.round(x - nx * 7 * K), iy = Math.round(y - ny * 7 * K), i = (iy * W + ix) * 4;
+    if (px[i + 3] < 200) continue;
+    // hairs lie toward the tail (+x) and splay a little
+    const lean = 0.45 + 0.25 * (rnd() - 0.5);
+    let dx = nx + lean, dy = ny + (rnd() - 0.5) * 0.5; const dl = Math.hypot(dx, dy); dx /= dl; dy /= dl;
+    const L = (2 + rnd() * rnd() * 11) * K, curl = (rnd() - 0.5) * 0.6 * L;
+    const x0 = x - nx * 2 * K, y0 = y - ny * 2 * K, x2 = x + dx * L - dy * curl, y2 = y + dy * L + dx * curl;
+    const cx = x + dx * L * 0.5, cy = y + dy * L * 0.5;
+    const col = `${px[i]},${px[i + 1]},${px[i + 2]}`, op = 0.22 + rnd() * 0.4, w = (0.7 + rnd() * 0.7) * K;
+    // two passes = a hair that thins and fades toward its tip
+    hg.strokeStyle = `rgba(${col},${op})`; hg.lineWidth = w;
+    hg.beginPath(); hg.moveTo(x0, y0); hg.quadraticCurveTo(cx, cy, (cx + x2) / 2, (cy + y2) / 2); hg.stroke();
+    hg.strokeStyle = `rgba(${col},${op * 0.5})`; hg.lineWidth = w * 0.6;
+    hg.beginPath(); hg.moveTo((cx + x2) / 2, (cy + y2) / 2); hg.lineTo(x2, y2); hg.stroke();
+    n++;
+  }
+  // soft under-fuzz: a faint blurred copy of the cat so the edge melts into the hairs
+  const fz = canvasOf(W, H), fg = fz.getContext('2d');
+  fg.filter = `blur(${Math.max(1, Math.round(2.5 * K))}px)`; fg.drawImage(src, 0, 0); fg.filter = 'none';
+  fg.drawImage(hairs, 0, 0);
+  g.globalCompositeOperation = 'destination-over';
+  g.globalAlpha = 0.55; g.drawImage(fz, 0, 0); g.globalAlpha = 1;
+  g.drawImage(hairs, 0, 0); g.globalCompositeOperation = 'source-over';
+  log(`fluff: ${n} hairs`);
+  return src;
+}
+// Rows the tail occupies, measured a little past the rump where only the tail is in the photo.
+function tailBand(src, xRef, y0, y1) {
+  const W = src.width, H = src.height, p = src.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, W, H).data;
+  const xr = Math.round(xRef * W); let top = H, bot = 0;
+  for (let y = Math.round(y0 * H); y < y1 * H; y++) if (p[(y * W + xr) * 4 + 3] > 128) { top = Math.min(top, y); bot = Math.max(bot, y); }
+  return { top: top / H, bot: bot / H };
+}
+// Find where the tail leaves the rump in a photo. Walking from the tail tip toward the body, the
+// silhouette (in the rows around the tail) suddenly gets much thicker: that is the root.
+// Returns { root, y0, y1 } in normalised coords (y0..y1 = the rows around the tail).
+function tailRoot(src) {
+  const W = src.width, H = src.height, p = src.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, W, H).data;
+  const A = (x, y) => p[(y * W + x) * 4 + 3] > 128;
+  // rows around the tail base (all photos share the pose: the base sits near x = 0.72..0.80)
+  const xr = Math.round(0.80 * W); let top = H, bot = 0;
+  for (let y = Math.round(0.2 * H); y < 0.75 * H; y++) if (A(xr, y)) { top = Math.min(top, y); bot = Math.max(bot, y); }
+  const c = bot > top ? (top + bot) / 2 : 0.42 * H;
+  const Y0 = Math.max(0, Math.round(c - 0.12 * H)), Y1 = Math.min(H - 1, Math.round(c + 0.12 * H));
+  const th = new Float32Array(W), ts = new Float32Array(W);
+  for (let x = 0; x < W; x++) { let n = 0; for (let y = Y0; y <= Y1; y++) if (A(x, y)) n++; th[x] = n; }
+  const r = Math.round(W * 0.004);
+  for (let x = r; x < W - r; x++) { let s = 0; for (let k = -r; k <= r; k++) s += th[x + k]; ts[x] = s / (2 * r + 1); }
+  // the tail is narrowest just after it leaves the body; walking left from there, the rump starts
+  // where the silhouette gets clearly thicker
+  let neck = -1;
+  for (let x = Math.round(0.70 * W); x < 0.82 * W; x++) if (ts[x] > 4 && (neck < 0 || ts[x] < ts[neck])) neck = x;
+  if (neck < 0) return { root: 0.705, y0: Y0 / H, y1: Y1 / H };
+  let x = neck;
+  while (x > 0.62 * W && ts[x] < ts[neck] * 1.45) x--;
+  return { root: Math.min(0.8, Math.max(0.64, x / W)), y0: Y0 / H, y1: Y1 / H };
+}
+// alpha *= f(xNorm, yNorm)
+function weigh(src, f) {
+  const W = src.width, H = src.height, c = canvasOf(W, H), g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(src, 0, 0);
+  const d = g.getImageData(0, 0, W, H), p = d.data;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) p[(y * W + x) * 4 + 3] *= f(x / W, y / H);
+  g.putImageData(d, 0, 0);
+  return c;
+}
+// Pixels connected to the tail, right of x0 (flood fill from the tail rows at x0): the tail and its
+// curled tip, but not a leg or paw that happens to be nearby. Returns lookup (xn, yn) -> 0..1.
+function tailComponent(src, x0, band) {
+  const s = 4, W = Math.ceil(src.width / s), H = Math.ceil(src.height / s);
+  const c = canvasOf(W, H), g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(src, 0, 0, W, H);
+  const a = g.getImageData(0, 0, W, H).data, X0 = Math.round(x0 * W);
+  const M = new Uint8Array(W * H), C = new Uint8Array(W * H), q = [];
+  for (let y = 0; y < H; y++) for (let x = X0; x < W; x++) M[y * W + x] = a[(y * W + x) * 4 + 3] > 30 ? 1 : 0;
+  for (let y = Math.round(band.top * H); y <= band.bot * H; y++) { const i = y * W + X0 + 2; if (M[i]) { C[i] = 1; q.push(i); } }
+  while (q.length) {
+    const i = q.pop(), x = i % W;
+    for (const j of [i - 1, i + 1, i - W, i + W]) {
+      if (j < 0 || j >= W * H || C[j] || !M[j] || Math.abs((j % W) - x) > 1) continue;
+      C[j] = 1; q.push(j);
+    }
+  }
+  const o = canvasOf(W, H), og = o.getContext('2d', { willReadFrequently: true }), od = og.createImageData(W, H);
+  for (let i = 0; i < W * H; i++) od.data[i * 4 + 3] = C[i] ? 255 : 0;
+  og.putImageData(od, 0, 0);
+  const sm = canvasOf(W, H), sg = sm.getContext('2d', { willReadFrequently: true });
+  // grow ~12 px (full res) so the soft fur fuzz around the tail goes with it, with a soft edge
+  sg.filter = 'blur(3px)'; for (let k = 0; k < 4; k++) sg.drawImage(o, 0, 0); sg.filter = 'none'; sg.drawImage(o, 0, 0);
+  const r = sg.getImageData(0, 0, W, H).data;
+  return (xn, yn) => r[(Math.min(H - 1, Math.floor(yn * H)) * W + Math.min(W - 1, Math.floor(xn * W))) * 4 + 3] / 255;
+}
+// Split a cat photo into body and tail at the tail root TAILX: near the root the tail layer is the band of
+// rows the tail occupies (the rump outline above and below stays with the body); past the root it is
+// whatever is connected to the tail. The body keeps everything else.
+function splitTail(cat, TAILX, y0, y1) {
+  const b = tailBand(cat, TAILX + 0.035, y0, y1), m = 0.008, soft = 0.012;
+  const inBand = y => { const o = Math.max(b.top - m - y, y - b.bot - m, 0); return Math.max(0, 1 - o / soft); };
+  const sm = (a, w, x) => { const t = Math.min(1, Math.max(0, (x - a) / w)); return t * t * (3 - 2 * t); };
+  const comp = tailComponent(cat, TAILX + 0.025, b);
+  const region = (x, y) => { const k = sm(TAILX + 0.03, 0.02, x); return inBand(y) * (1 - k) + comp(x, y) * k; };
+  const tail = weigh(cat, (x, y) => region(x, y) * sm(TAILX - 0.03, 0.03, x));
+  // the body gives the tail area up completely (no faint ghost of the tail left behind when it swings)
+  const body = weigh(cat, (x, y) => 1 - Math.min(1, region(x, y) * 1.8) * sm(TAILX - 0.005, 0.02, x));
+  return { body, tail };
+}
+function bbox(c) {
+  const W = c.width, H = c.height, p = c.getContext('2d').getImageData(0, 0, W, H).data;
+  let x0 = W, y0 = H, x1 = 0, y1 = 0;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (p[(y * W + x) * 4 + 3] > 8) {
+    if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+  }
+  const pad = 16; x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad); x1 = Math.min(W - 1, x1 + pad); y1 = Math.min(H - 1, y1 + pad);
+  return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+}
+function crop(c, b) { const o = canvasOf(b.w, b.h); o.getContext('2d').drawImage(c, b.x, b.y, b.w, b.h, 0, 0, b.w, b.h); return o; }
+async function put(name, canvas, q = 0.86) {
+  const blob = await new Promise(r => canvas.toBlob(r, 'image/webp', q));
+  const res = await fetch('/assets/top/out/' + name, { method: 'PUT', body: blob });
+  log(`${name}: ${canvas.width}x${canvas.height} ${(blob.size / 1024).toFixed(0)} KB -> ${res.status}`);
+}
+async function putText(name, text) {
+  const res = await fetch('/assets/top/out/' + name, { method: 'PUT', body: text });
+  log(`${name}: ${res.status}`);
+}
+
+(async () => {
+  const meta = {};
+  const S = 1;    // keep full resolution (2752 wide) for sharpness
+
+  // ---- room ----
+  const room = await load(SRC + 'room-full.png');
+  {
+    const k = 0.88, w = Math.round(room.width * k), h = Math.round(room.height * k);   // crop off the mark
+    const c = canvasOf(Math.round(w * S), Math.round(h * S));
+    c.getContext('2d').drawImage(room, 0, 0, w, h, 0, 0, c.width, c.height);
+    await put('room.webp', c, 0.86);
+    meta.room = { w: c.width, h: c.height };
+  }
+
+  // ---- cats: the main ginger shorthair + breeds (all in the same two poses) ----
+  // Each cat: side pose -> body + swinging tail layer; belly-up -> body (shares that cat's tail layer).
+  const TAILX = 0.705;
+  async function doCat(dir, sideFile, bellyFile, prefix, seed, hairless = false) {
+    const sideImg = await load(dir + sideFile), sc = 2752 / sideImg.width;   // normalise every cat to 2752 px wide
+    const catK = key(sideImg, sc), cat = hairless ? catK : fluff(catK, seed);
+    const FW = cat.width, FH = cat.height, m = { frame: { w: FW, h: FH } };
+    m.tailBase = {};
+    // each pose: find the tail root, split body / tail there, remember where the tail joins the body
+    const split = (img, pose) => {
+      const r = tailRoot(img);
+      if (r.root <= 0.645) r.root = pose === 'side' ? 0.705 : 0.74;   // bushy tail blends into the rump: use the shared pose's root
+      const parts = splitTail(img, r.root, r.y0, r.y1), b = tailBand(img, r.root + 0.035, r.y0, r.y1);
+      m.tailBase[pose] = [+r.root.toFixed(4), +((b.top + b.bot) / 2).toFixed(4)];
+      return parts;
+    };
+    const { body: catBody, tail: catTail } = split(cat, 'side');
+    for (const [name, c] of [['body-side', catBody], ['tail-side', catTail]]) {
+      const b = bbox(c); await put(prefix + name + '.webp', crop(c, b), 0.92);
+      m[name] = { x: b.x / FW, y: b.y / FH, w: b.w / FW, h: b.h / FH };
+    }
+    // small portrait for the breed picker (head & shoulders)
+    const th = canvasOf(112, 112), tg = th.getContext('2d'); tg.imageSmoothingQuality = 'high';
+    tg.drawImage(cat, 0.03 * FW, 0.22 * FH, 0.30 * FW, 0.30 * FW, 0, 0, 112, 112);
+    await put(prefix + 'thumb.webp', th, 0.9);
+    const bellyImg = await load(dir + bellyFile);
+    const bellyK = key(bellyImg, 2752 / bellyImg.width), belly = hairless ? bellyK : fluff(bellyK, seed + 1);
+    const { body: bellyBody, tail: bellyTail } = split(belly, 'belly');
+    for (const [name, c] of [['body-belly', bellyBody], ['tail-belly', bellyTail]]) {
+      const b = bbox(c); await put(prefix + name + '.webp', crop(c, b), 0.92);
+      m[name] = { x: b.x / FW, y: b.y / FH, w: b.w / FW, h: b.h / FH };
+    }
+    // optional third pose: standing with the hips raised (no separate tail layer: the tail is up in the photo)
+    const hipsImg = await load(SRC + 'breeds/' + (prefix ? prefix.slice(0, -1) : 'shorthair') + '/hipsup-green.png').catch(() => null);
+    if (hipsImg) {
+      const hk = key(hipsImg, 2752 / hipsImg.width), hips = hairless ? hk : fluff(hk, seed + 2);
+      const b = bbox(hips); await put(prefix + 'body-hipsup.webp', crop(hips, b), 0.92);
+      m['body-hipsup'] = { x: b.x / FW, y: b.y / FH, w: b.w / FW, h: b.h / FH };
+    }
+    log(`${prefix || 'main'}: tail root side ${m.tailBase.side} belly ${m.tailBase.belly}, side ${sideImg.width}x${sideImg.height}, belly ${bellyImg.width}x${bellyImg.height}`);
+    return m;
+  }
+  Object.assign(meta, await doCat(SRC, 'cat-green-full.png', 'belly-green-full.png', '', 1));
+  meta.breeds = {};
+  for (const [i, id] of ['persian', 'mainecoon', 'sphynx', 'british', 'bengal', 'ragdoll'].entries())
+    meta.breeds[id] = await doCat(SRC + 'breeds/' + id + '/', 'side-green.png', 'belly-green.png', id + '-', 10 + i * 2, id === 'sphynx');
+
+  // ---- hands ----
+  for (const [file, name] of [['hand-green-full.png', 'hand'], ['grip-green-full.png', 'grip']]) {
+    const img = await load(SRC + file);
+    const c = key(img, 1, true);
+    const b = bbox(c), cr = crop(c, b);
+    const sc = Math.min(1, 1400 / cr.height), o = canvasOf(Math.round(cr.width * sc), Math.round(cr.height * sc));
+    { const og = o.getContext('2d'); og.imageSmoothingQuality = 'high'; og.drawImage(cr, 0, 0, o.width, o.height); }
+    await put(name + '.webp', o, 0.92);
+    meta[name] = { w: o.width, h: o.height };
+  }
+
+  await putText('meta.json', JSON.stringify(meta, null, 1));
+  log('DONE');
+})().catch(e => log('ERROR ' + e.stack));
+</script>
+</body>

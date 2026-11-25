@@ -1,0 +1,12 @@
+# Only the website (index.html + assets/top/out) and the tools are published.
+# Source photos, Gemini downloads, raw renders and previews stay local.
+assets/*.png
+assets/clips/
+assets/upload/
+assets/top/*.png
+assets/top/breeds/
+assets/top/breeds-sideview/
+assets/top/out-prev/
+assets/top/out/*.mp4
+legacy/
+preview/
