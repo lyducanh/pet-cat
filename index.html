@@ -660,6 +660,7 @@ function update(dt, now){
   S.cam[0] = follow(S.cam[0], clamp(cx, A/2-mx, A/2+mx), dt, 1.4);
   S.cam[1] = follow(S.cam[1], clamp(cy, 0.5-my, 0.5+my), dt, 1.4);
   S.cam[3] = follow(S.cam[3], 0.006*Math.sin(now*0.05), dt, 2);
+  if (window.__camOverride) { const c = window.__camOverride(now); if (c) S.cam = c; }   // recording: scripted camera
 
   const targetPurr = (now - S.lastPet < 1.5 && S.comfort > 0.15) ? Math.min(1, S.comfort*1.5) : 0;
   S.purr = follow(S.purr, targetPurr, dt, 0.5);
@@ -1131,6 +1132,9 @@ window.__demo = (name) => startDemo(name, window.__clock ?? (performance.now()/1
 // recording hooks: render at a fixed size, on a virtual clock (window.__clock), with the live loop paused
 window.__setRes = (w, h) => { canvas.width = w; canvas.height = h; gl.viewport(0, 0, w, h); };
 window.__layout = () => layout();
+window.__world = (key, name) => poseWorld(key, name);
+window.__worldToScreen = w => worldToScreen(w);
+window.__aspect = () => A;
 window.__draw = () => draw(performance.now()/1000);
 window.__sim = (secs, from, to) => {
   let t = window.__clock ?? (performance.now()/1000 + (window.__simT || 0));
