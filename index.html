@@ -40,13 +40,6 @@
   .online i { width:9px; height:9px; border-radius:50%; background:#2fbf5b; box-shadow:0 0 0 0 rgba(47,191,91,.6); animation:live 2s infinite; }
   @keyframes live { 0% { box-shadow:0 0 0 0 rgba(47,191,91,.6); } 70% { box-shadow:0 0 0 8px rgba(47,191,91,0); } 100% { box-shadow:0 0 0 0 rgba(47,191,91,0); } }
   :root[data-theme="dark"] .online { background:rgba(30,26,22,.7); }
-  .vidModal { position:fixed; inset:0; z-index:50; display:none; place-items:center; background:rgba(12,9,7,.78); backdrop-filter:blur(6px); padding:24px; }
-  .vidModal.open { display:grid; }
-  .vidModal .box { position:relative; width:min(1100px, 100%); }
-  .vidModal video { display:block; width:100%; border-radius:16px; background:#000; box-shadow:0 20px 60px rgba(0,0,0,.5); }
-  .vidModal .close { position:absolute; top:-18px; right:-18px; width:44px; height:44px; padding:0; border-radius:50%; font-size:20px; }
-  .vidModal .langs { display:flex; gap:8px; justify-content:center; margin-top:12px; }
-  .vidModal .langs button.on { background:var(--fill2); color:#fff; }
   .breeds { display:flex; align-items:center; gap:8px; width:100%; overflow-x:auto; padding:2px; scrollbar-width:none; }
   .breeds .br { flex:none; display:flex; align-items:center; gap:7px; padding:3px 12px 3px 3px; font-size:13px; border:2px solid transparent; }
   .breeds .br img { width:30px; height:30px; border-radius:50%; object-fit:cover; display:block; }
@@ -99,34 +92,12 @@
       <div class="row"><button id="shapeReset" data-i18n="reset">Reset</button></div>
     </div>
     <button id="shapeBtn" data-i18n="shapeBtn">⚙ Size &amp; body</button>
-    <button id="videoBtn" data-i18n="video">🎬 Watch video</button>
     <button id="langBtn">🌐 Tiếng Việt</button>
     <button id="reset" data-i18n="startOver">↺ Start over</button>
     <button id="sound">🔇 Sound off</button>
   </div>
-  <div class="guide" id="guide">
-    <div class="step" data-step="stroke"><span class="num">1</span>
-      <div class="txt"><b data-i18n="s1t"></b><small data-i18n="s1d"></small></div>
-      <button data-demo="stroke"></button></div>
-    <div class="step" data-step="scratch"><span class="num">2</span>
-      <div class="txt"><b data-i18n="s2t"></b><small data-i18n="s2d"></small></div>
-      <button data-demo="scratch"></button></div>
-    <div class="step" data-step="grab"><span class="num">3</span>
-      <div class="txt"><b data-i18n="s3t"></b><small data-i18n="s3d"></small></div>
-      <button data-demo="grab"></button></div>
-    <div class="step" data-step="belly"><span class="num">4</span>
-      <div class="txt"><b data-i18n="s4t"></b><small data-i18n="s4d"></small></div>
-      <button data-demo="belly"></button></div>
-  </div>
 </div>
 
-<div class="vidModal" id="vidModal" role="dialog" aria-modal="true">
-  <div class="box">
-    <video id="vid" controls playsinline preload="none"></video>
-    <button class="close" id="vidClose" aria-label="Close">✕</button>
-    <div class="langs"><button data-vl="vi">Tiếng Việt</button><button data-vl="en">English</button></div>
-  </div>
-</div>
 <script>
 (() => {
 'use strict';
@@ -159,7 +130,7 @@ const I18N = {
 };
 const store = { get(k){ try { return localStorage.getItem(k); } catch (_) { return null; } },
                 set(k, v){ try { localStorage.setItem(k, v); } catch (_) {} } };
-let LANG = store.get('cat-lang') || ((navigator.language || '').toLowerCase().startsWith('vi') ? 'vi' : 'en');
+let LANG = store.get('cat-lang') || 'vi';
 const tr = k => (I18N[LANG][k] ?? I18N.en[k] ?? k);
 
 // ---------------------------------------------------------------------------
@@ -449,11 +420,11 @@ function poseWorld(key, name){ const p = POSE[key][name]; return frameToWorld(p[
 const stage = document.getElementById('stage');
 let stageW = 0, stageH = 0;
 function layout(){
-  const bar = document.getElementById('bar'), guide = document.getElementById('guide'), coats = document.getElementById('coats'), breeds = document.getElementById('breeds');
-  const maxW = Math.min(window.innerWidth - 32, 1400), maxH = window.innerHeight - 32 - 56 - bar.offsetHeight - guide.offsetHeight - coats.offsetHeight - breeds.offsetHeight;
+  const bar = document.getElementById('bar'), coats = document.getElementById('coats'), breeds = document.getElementById('breeds');
+  const maxW = Math.min(window.innerWidth - 32, 1400), maxH = window.innerHeight - 32 - 56 - bar.offsetHeight - coats.offsetHeight - breeds.offsetHeight;
   let w = maxW, h = w / A; if (h > maxH) { h = maxH; w = h * A; }
   stageW = w; stageH = h;
-  stage.style.width = w+'px'; stage.style.height = h+'px'; bar.style.width = w+'px'; guide.style.width = w+'px'; coats.style.width = w+'px'; breeds.style.width = w+'px';
+  stage.style.width = w+'px'; stage.style.height = h+'px'; bar.style.width = w+'px'; coats.style.width = w+'px'; breeds.style.width = w+'px';
   const dpr = Math.min(window.devicePixelRatio||1, 2);
   canvas.width = Math.round(w*dpr); canvas.height = Math.round(h*dpr);
   gl.viewport(0, 0, canvas.width, canvas.height);
@@ -778,11 +749,6 @@ function renderGuide(now, key){
     spotLabel.textContent = tr(SPOT_LABEL[current]);
   }
 }
-document.getElementById('guide').addEventListener('click', e => {
-  const b = e.target.closest('button[data-demo]'); if (!b || !FR) return;
-  const name = b.dataset.demo, now = performance.now()/1000 + (window.__simT || 0);
-  if (S.demo && S.demo.name === name) stopDemo(); else startDemo(name, now);
-});
 // size & body shape (remembered on this device)
 const sizeIn = document.getElementById('size'), fatIn = document.getElementById('fat');
 function applyShape(save){
@@ -899,20 +865,6 @@ if (SUPABASE_URL && SUPABASE_ANON_KEY) (async () => {
     window.__online = () => onlineN;
   } catch (e) { console.warn('online counter unavailable', e); }
 })();
-
-// promo video (in the language of the page; switchable in the player)
-const vidModal = document.getElementById('vidModal'), vid = document.getElementById('vid');
-function showVideo(l){
-  vid.poster = `media/promo-${l}.jpg`; vid.src = `media/promo-${l}.mp4`;
-  vidModal.querySelectorAll('[data-vl]').forEach(b => b.classList.toggle('on', b.dataset.vl === l));
-  vid.play().catch(() => {});
-}
-function closeVideo(){ vid.pause(); vidModal.classList.remove('open'); }
-document.getElementById('videoBtn').addEventListener('click', () => { vidModal.classList.add('open'); showVideo(LANG); });
-document.getElementById('vidClose').addEventListener('click', closeVideo);
-vidModal.addEventListener('click', e => { if (e.target === vidModal) closeVideo(); });
-vidModal.querySelectorAll('[data-vl]').forEach(b => b.addEventListener('click', () => showVideo(b.dataset.vl)));
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && vidModal.classList.contains('open')) closeVideo(); });
 
 // language
 function applyLang(){
