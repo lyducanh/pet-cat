@@ -33,6 +33,13 @@
   .nightBtn { position:absolute; top:12px; right:12px; z-index:3; width:38px; height:38px; padding:0; border-radius:50%;
               display:grid; place-items:center; font-size:17px; cursor:pointer; background:rgba(255,255,255,.78); backdrop-filter:blur(4px); }
   :root[data-theme="dark"] .nightBtn { background:rgba(30,26,22,.7); }
+  .online { position:absolute; top:12px; left:12px; z-index:3; display:none; align-items:center; gap:8px; padding:7px 14px;
+            border-radius:999px; font-size:13px; font-weight:600; color:var(--ink); background:rgba(255,255,255,.8); backdrop-filter:blur(4px);
+            box-shadow:0 1px 4px rgba(0,0,0,.12); pointer-events:none; }
+  .online.on { display:flex; }
+  .online i { width:9px; height:9px; border-radius:50%; background:#2fbf5b; box-shadow:0 0 0 0 rgba(47,191,91,.6); animation:live 2s infinite; }
+  @keyframes live { 0% { box-shadow:0 0 0 0 rgba(47,191,91,.6); } 70% { box-shadow:0 0 0 8px rgba(47,191,91,0); } 100% { box-shadow:0 0 0 0 rgba(47,191,91,0); } }
+  :root[data-theme="dark"] .online { background:rgba(30,26,22,.7); }
   .vidModal { position:fixed; inset:0; z-index:50; display:none; place-items:center; background:rgba(12,9,7,.78); backdrop-filter:blur(6px); padding:24px; }
   .vidModal.open { display:grid; }
   .vidModal .box { position:relative; width:min(1100px, 100%); }
@@ -78,6 +85,7 @@
   <div class="stage" id="stage">
     <canvas id="c"></canvas>
     <div class="spot" id="spot"><i></i><span></span></div>
+    <div class="online" id="online"><i></i><span></span></div>
     <button class="nightBtn" id="nightBtn" data-i18n-title="nightOn">🌙</button>
     <div class="loading" id="loading" data-i18n="loading">Loading the cat…</div>
   </div>
@@ -137,7 +145,7 @@ const I18N = {
         s3t:'Grab the tail', s3d:'Press on the tail and drag. It follows your hand, then swishes back.',
         s4t:'Keep petting', s4d:'Fill the heart bar and the cat rolls onto its back. Stop and it rolls back.',
         spotStroke:'hold & drag slowly →', spotScratch:'hold & rub quickly here', spotGrab:'press & drag the tail', spotBelly:'keep stroking',
-        natural:'natural coat (colours are for the orange shorthair)', video:'🎬 Watch video' },
+        natural:'natural coat (colours are for the orange shorthair)', video:'🎬 Watch video', online:'{n} online now' },
   vi: { title:'Vuốt ve mèo', loading:'Đang tải mèo…', dozing:'đang ngủ', purring:' & gừ gừ', blissed:'sướng rơn',
         hipsUp:'nhổm mông!', tailHeld:'bị nắm đuôi!', shapeBtn:'⚙ Cỡ & dáng', size:'Cỡ', body:'Dáng', reset:'Đặt lại',
         startOver:'↺ Làm lại', soundOff:'🔇 Tắt tiếng', soundOn:'🔊 Bật tiếng', nightOn:'Chế độ đêm', nightOff:'Chế độ ngày',
@@ -147,7 +155,7 @@ const I18N = {
         s3t:'Nắm đuôi', s3d:'Nhấn vào đuôi rồi kéo. Đuôi đi theo tay bạn, thả ra thì vẫy lại.',
         s4t:'Tiếp tục vuốt ve', s4d:'Lấp đầy thanh trái tim, mèo sẽ lật ngửa bụng. Dừng lại thì mèo lăn về.',
         spotStroke:'giữ & kéo chậm →', spotScratch:'giữ & gãi nhanh ở đây', spotGrab:'nhấn & kéo đuôi', spotBelly:'cứ vuốt tiếp',
-        natural:'màu lông tự nhiên (đổi màu dùng cho mèo mướp lông ngắn)', video:'🎬 Xem video' },
+        natural:'màu lông tự nhiên (đổi màu dùng cho mèo mướp lông ngắn)', video:'🎬 Xem video', online:'{n} người đang online' },
 };
 const store = { get(k){ try { return localStorage.getItem(k); } catch (_) { return null; } },
                 set(k, v){ try { localStorage.setItem(k, v); } catch (_) {} } };
@@ -846,6 +854,29 @@ async function pickBreed(id){
   renderBreeds(); setCoat(S.coat, false);
 }
 
+// ---------------------------------------------------------------------------
+// Online now: Supabase Realtime Presence. Every open page joins one channel and "tracks" itself;
+// the count is the number of pages currently connected (a closed tab drops out within seconds).
+// The URL and the public "anon" key are safe to ship in a web page; nothing is stored in a database.
+// Leave them empty to turn the counter off.
+// ---------------------------------------------------------------------------
+const SUPABASE_URL = 'https://sgmgnhzqttzdaojdwpit.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_XzYvoSG4XfWHnF9GVfemdg_eAjpYMYy';
+const onlineEl = document.getElementById('online');
+let onlineN = 0;
+function renderOnline(){ onlineEl.querySelector('span').textContent = tr('online').replace('{n}', onlineN); onlineEl.classList.toggle('on', onlineN > 0); }
+if (SUPABASE_URL && SUPABASE_ANON_KEY) (async () => {
+  try {
+    const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/+esm');
+    const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const me = (crypto.randomUUID && crypto.randomUUID()) || String(Math.random()).slice(2);
+    const ch = sb.channel('pet-cat-online', { config: { presence: { key: me } } });
+    ch.on('presence', { event: 'sync' }, () => { onlineN = Object.keys(ch.presenceState()).length; renderOnline(); })
+      .subscribe(st => { if (st === 'SUBSCRIBED') ch.track({ since: Date.now(), lang: LANG }); });
+    window.__online = () => onlineN;
+  } catch (e) { console.warn('online counter unavailable', e); }
+})();
+
 // promo video (in the language of the page; switchable in the player)
 const vidModal = document.getElementById('vidModal'), vid = document.getElementById('vid');
 function showVideo(l){
@@ -867,7 +898,7 @@ function applyLang(){
   document.querySelectorAll('[data-i18n-title]').forEach(el => { el.title = tr(el.dataset.i18nTitle); el.setAttribute('aria-label', el.title); });
   document.getElementById('langBtn').textContent = tr('lang');
   document.getElementById('sound').textContent = tr(soundOn ? 'soundOn' : 'soundOff');
-  guideSig = ''; setCoat(S.coat, false); renderBreeds();
+  guideSig = ''; setCoat(S.coat, false); renderBreeds(); if (typeof renderOnline === 'function' && onlineN) renderOnline();
   document.querySelectorAll('.step button').forEach(b => { b.textContent = tr('showMe'); });
   mood.textContent = tr('dozing');
 }
