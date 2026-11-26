@@ -25,7 +25,9 @@ alter table public.visits
   add column if not exists site_lang   text,   -- language of the page: en / vi
   add column if not exists timezone    text,   -- e.g. Asia/Ho_Chi_Minh
   add column if not exists screen      text,   -- e.g. 1920x1080
-  add column if not exists user_agent  text;   -- full browser string
+  add column if not exists user_agent  text,   -- full browser string
+  add column if not exists headers     jsonb,  -- every request header the server received (keys removed)
+  add column if not exists client      jsonb;  -- everything the page sent about the browser and device
 create index if not exists visits_ip_time on public.visits (ip, created_at desc);
 create index if not exists visits_time on public.visits (created_at desc);
 
@@ -52,7 +54,7 @@ begin
     return;
   end if;
   insert into visits (ip, country, browser, os, device, visitor_id, nav, path, referrer,
-                      language, site_lang, timezone, screen, user_agent)
+                      language, site_lang, timezone, screen, user_agent, headers, client)
   values (
     v_ip,
     h->>'cf-ipcountry',
@@ -90,7 +92,9 @@ begin
     left(info->>'site_lang', 5),
     left(info->>'timezone', 60),
     left(info->>'screen', 20),
-    ua
+    ua,
+    h::jsonb - 'authorization' - 'apikey' - 'cookie',
+    case when length(info::text) <= 8000 then info end
   );
 end;
 $$;

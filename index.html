@@ -873,10 +873,24 @@ if (SUPABASE_URL && SUPABASE_ANON_KEY) (async () => {
     let vid = null;
     try { vid = localStorage.getItem('petcat-visitor') || (localStorage.setItem('petcat-visitor', crypto.randomUUID()), localStorage.getItem('petcat-visitor')); } catch (e) {}
     const navType = (performance.getEntriesByType && (performance.getEntriesByType('navigation')[0] || {}).type) || 'navigate';
+    const nav = navigator, conn = nav.connection || {}, uad = nav.userAgentData || {}, navT = performance.getEntriesByType('navigation')[0] || {};
     window.__visit = sb.rpc('log_visit', { info: {
       visitor_id: vid, nav: navType, path: location.pathname + location.search, referrer: document.referrer || null,
-      language: navigator.language, site_lang: LANG, screen: screen.width + 'x' + screen.height,
-      timezone: (Intl.DateTimeFormat().resolvedOptions() || {}).timeZone } })
+      language: nav.language, site_lang: LANG, screen: screen.width + 'x' + screen.height,
+      timezone: (Intl.DateTimeFormat().resolvedOptions() || {}).timeZone,
+      // everything else the browser tells a page about itself (all in the "client" column)
+      url: location.href, title: document.title, languages: nav.languages, platform: nav.platform,
+      ua_brands: uad.brands, ua_mobile: uad.mobile, ua_platform: uad.platform,
+      viewport: innerWidth + 'x' + innerHeight, pixel_ratio: devicePixelRatio, color_depth: screen.colorDepth,
+      orientation: screen.orientation && screen.orientation.type, touch_points: nav.maxTouchPoints,
+      cpu_cores: nav.hardwareConcurrency, memory_gb: nav.deviceMemory,
+      network: conn.effectiveType, downlink_mbps: conn.downlink, rtt_ms: conn.rtt, save_data: conn.saveData,
+      dark_mode: matchMedia('(prefers-color-scheme: dark)').matches, reduced_motion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+      cookies_on: nav.cookieEnabled, do_not_track: nav.doNotTrack, webdriver: nav.webdriver,
+      gpu: (() => { try { const g = document.createElement('canvas').getContext('webgl'), d = g && g.getExtension('WEBGL_debug_renderer_info');
+        return d ? g.getParameter(d.UNMASKED_RENDERER_WEBGL) : null; } catch (e) { return null; } })(),
+      load_ms: navT.duration ? Math.round(navT.duration) : Math.round(performance.now()),
+      local_time: new Date().toString(), utm: Object.fromEntries([...new URLSearchParams(location.search)].filter(([k]) => /^utm_|^fbclid$|^gclid$/.test(k))) } })
       .then(r => r.error ? (console.warn('visit log', r.error.message), r) : r);
     const me = (crypto.randomUUID && crypto.randomUUID()) || String(Math.random()).slice(2);
     const ch = sb.channel('pet-cat-online', { config: { presence: { key: me } } });
